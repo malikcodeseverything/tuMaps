@@ -1,0 +1,39 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+.next/
+
+# Environment variables
+.env
+.env.local
+
+# Mac
+.DS_Store
+
+# Build/cache
+.cache/
+dist/
+build/
+
+# Python cache
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# OSM/cache
+*.graphml
+
+# Generated graph/cache
+
+backend/data/
+
+backend/cache/
+
+# Claude local files
+
+.claude/
