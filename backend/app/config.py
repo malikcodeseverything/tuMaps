@@ -26,6 +26,8 @@ def mask_database_url(url: str) -> str:
 def normalize_database_url(value: str) -> str:
     """Normalize Railway/local Postgres URLs for SQLAlchemy's asyncpg dialect."""
     value = value.strip().strip('"').strip("'")
+    if value.startswith("DATABASE_URL="):
+        value = value.removeprefix("DATABASE_URL=").strip().strip('"').strip("'")
 
     if "${{" in value or "}}" in value:
         raise ValueError(
