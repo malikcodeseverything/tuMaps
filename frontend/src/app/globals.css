@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mapbox GL JS needs explicit dimensions on the container */
+.mapboxgl-map {
+  width: 100%;
+  height: 100%;
+}
+
+/* Hide Mapbox logo in development */
+.mapboxgl-ctrl-logo {
+  display: none !important;
+}
