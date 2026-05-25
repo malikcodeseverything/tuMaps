@@ -1,6 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import text
 from .config import settings
 
 engine = create_async_engine(settings.database_url, echo=False)
@@ -13,7 +12,6 @@ class Base(DeclarativeBase):
 
 async def create_tables() -> None:
     async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.create_all)
 
 

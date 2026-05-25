@@ -1,6 +1,5 @@
 from datetime import date
 from sqlalchemy import Column, Integer, String, Float, Date, UniqueConstraint
-from geoalchemy2 import Geometry
 from ..database import Base
 
 
@@ -12,7 +11,6 @@ class Incident(Base):
     external_id = Column(String(100))
     lat = Column(Float, nullable=False)
     lng = Column(Float, nullable=False)
-    geom = Column(Geometry("POINT", srid=4326))
     incident_date = Column(Date, nullable=False, index=True)
     ucr_code = Column(Integer)
     crime_type = Column(String(100))
