@@ -29,11 +29,8 @@ build/
 *.graphml
 
 # Generated graph/cache
-
 backend/data/
-
 backend/cache/
 
 # Claude local files
-
 .claude/
