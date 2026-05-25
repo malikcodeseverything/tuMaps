@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .config import settings, log_runtime_config
 from .database import create_tables, async_session_factory
 from .routers import routes, incidents, segments
 from .services import graph as graph_service
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_runtime_config()
     await create_tables()
 
     loop = asyncio.get_event_loop()
