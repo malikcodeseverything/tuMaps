@@ -10,8 +10,43 @@ logger = logging.getLogger(__name__)
 _CACHE = Path(__file__).parent.parent.parent / "data" / "graph.pkl"
 _CENTER = (39.9812, -75.1557)  # Temple University main campus (lat, lng)
 _RADIUS_M = 2200               # covers campus + immediate surrounding blocks
+_WALK_SPEED_MPS = 1.25
 
 _graph = None
+
+
+def _normalize_walk_travel_times(g) -> bool:
+    """Ensure cached/downloaded walk graphs use pedestrian travel times."""
+    corrected = False
+    sample_ratio = None
+
+    for _u, _v, _k, data in g.edges(keys=True, data=True):
+        length = data.get("length")
+        if not length:
+            continue
+        expected = length / _WALK_SPEED_MPS
+        existing = data.get("travel_time")
+        if sample_ratio is None and existing:
+            sample_ratio = existing / expected
+        if existing is None or abs(existing - expected) > 0.01:
+            data["travel_time"] = expected
+            corrected = True
+
+    if sample_ratio is not None and (sample_ratio < 0.5 or sample_ratio > 2.0):
+        logger.warning(
+            "Graph travel_time values looked non-walking-like; normalized all edges to %.2f m/s",
+            _WALK_SPEED_MPS,
+        )
+    elif corrected:
+        logger.info("Normalized graph travel_time values to %.2f m/s walking speed", _WALK_SPEED_MPS)
+
+    return corrected
+
+
+def _write_cache(g) -> None:
+    _CACHE.parent.mkdir(parents=True, exist_ok=True)
+    with open(_CACHE, "wb") as f:
+        pickle.dump(g, f)
 
 
 def load_or_download() -> None:
@@ -20,6 +55,8 @@ def load_or_download() -> None:
         logger.info("Loading road graph from disk cache…")
         with open(_CACHE, "rb") as f:
             _graph = pickle.load(f)
+        if _normalize_walk_travel_times(_graph):
+            _write_cache(_graph)
         logger.info("Graph loaded: %d nodes, %d edges", len(_graph.nodes), len(_graph.edges))
         return
 
@@ -27,10 +64,9 @@ def load_or_download() -> None:
     g = ox.graph_from_point(_CENTER, dist=_RADIUS_M, network_type="walk")
     g = ox.add_edge_speeds(g)
     g = ox.add_edge_travel_times(g)
+    _normalize_walk_travel_times(g)
 
-    _CACHE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_CACHE, "wb") as f:
-        pickle.dump(g, f)
+    _write_cache(g)
 
     _graph = g
     logger.info("Graph downloaded and cached: %d nodes, %d edges", len(_graph.nodes), len(_graph.edges))

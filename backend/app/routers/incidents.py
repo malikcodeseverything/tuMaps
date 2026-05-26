@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,8 @@ router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
 
 @router.get("")
-async def get_incidents(session: AsyncSession = Depends(get_session)):
+async def get_incidents(response: Response, session: AsyncSession = Depends(get_session)):
+    response.headers["Cache-Control"] = "public, max-age=300"
     result = await session.execute(select(Incident))
     incidents = result.scalars().all()
 

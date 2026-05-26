@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings, log_runtime_config
 from .database import create_tables, async_session_factory
+from .middleware.rate_limit import RateLimitMiddleware
 from .routers import routes, incidents, segments
 from .services import graph as graph_service
 from .services.risk import compute_and_apply
@@ -32,6 +33,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TuMaps Safety API", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    RateLimitMiddleware,
+    enabled=settings.rate_limit_enabled,
+    route_requests_per_minute=settings.route_rate_limit_per_minute,
+    read_requests_per_minute=settings.read_rate_limit_per_minute,
+)
 
 app.add_middleware(
     CORSMiddleware,

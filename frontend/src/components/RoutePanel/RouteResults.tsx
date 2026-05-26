@@ -1,6 +1,6 @@
 "use client";
 import { Loader2, AlertCircle, Navigation } from "lucide-react";
-import type { RouteMode, RoutesResponse } from "@/types";
+import type { RouteMode, RouteResult, RoutesResponse } from "@/types";
 
 interface Props {
   routes: RoutesResponse | null;
@@ -19,21 +19,24 @@ function fmt_time(s: number): string {
   return min < 1 ? "< 1 min" : `${min} min`;
 }
 
-function RiskBar({ score }: { score: number }) {
-  const pct = Math.round(score * 100);
-  const color =
-    score < 0.25 ? "bg-green-500" : score < 0.5 ? "bg-yellow-400" : score < 0.75 ? "bg-orange-400" : "bg-red-500";
-  const label =
-    score < 0.25 ? "Low" : score < 0.5 ? "Moderate" : score < 0.75 ? "Elevated" : "High";
+function riskColor(label: string): string {
+  if (label.startsWith("Lower")) return "bg-green-500";
+  if (label.startsWith("Moderate")) return "bg-yellow-400";
+  if (label.startsWith("Elevated")) return "bg-orange-400";
+  return "bg-red-500";
+}
+
+function RiskBar({ result }: { result: RouteResult }) {
+  const pct = Math.max(4, Math.round(result.risk_percentile * 100));
 
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-gray-400">Risk level</span>
-        <span className="text-white font-medium">{label}</span>
+        <span className="text-gray-400">Relative risk</span>
+        <span className="text-white font-medium">{result.risk_label}</span>
       </div>
       <div className="h-1.5 rounded-full bg-gray-700 overflow-hidden">
-        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full ${riskColor(result.risk_label)} transition-all`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -82,9 +85,19 @@ export default function RouteResults({ routes, selectedMode, isLoading, error, h
           <p className="text-sm font-semibold text-white mt-0.5">{fmt_time(result.duration_s)}</p>
         </div>
       </div>
-      <RiskBar score={result.risk_score} />
+      <RiskBar result={result} />
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-gray-800/60 rounded-lg px-3 py-2">
+          <p className="text-gray-400">Peak block</p>
+          <p className="font-medium text-white mt-0.5">{result.max_segment_risk_label}</p>
+        </div>
+        <div className="bg-gray-800/60 rounded-lg px-3 py-2">
+          <p className="text-gray-400">Elevated blocks</p>
+          <p className="font-medium text-white mt-0.5">{result.elevated_segment_count}</p>
+        </div>
+      </div>
       <p className="text-xs text-gray-500 leading-relaxed">
-        Risk reflects historical incident frequency near this route. Conditions may differ in real time.
+        Estimates are based on historical reports near this route. Conditions may differ in real time.
       </p>
     </div>
   );

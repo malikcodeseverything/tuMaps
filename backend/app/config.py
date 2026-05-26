@@ -46,6 +46,11 @@ def normalize_database_url(value: str) -> str:
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://tumaps:tumaps_dev@localhost/tumaps"
     cors_origins: List[str] = ["http://localhost:3000"]
+    rate_limit_enabled: bool = True
+    route_rate_limit_per_minute: int = 30
+    read_rate_limit_per_minute: int = 30
+    max_route_distance_m: int = 5_000
+    max_snap_distance_m: int = 350
 
     @field_validator("database_url", mode="before")
     @classmethod

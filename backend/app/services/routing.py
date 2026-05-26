@@ -11,7 +11,9 @@ from typing import List, Dict, Any, Optional, Tuple
 
 import networkx as nx
 
+from ..config import settings
 from .graph import get_graph, nearest_node
+from .risk import elevated_risk_threshold, risk_label, risk_percentile
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,12 @@ _MODES = {
 # Assumed pedestrian speed for admissible heuristic in time-based modes.
 # osmnx default walk speed is 4.5 km/h = 1.25 m/s.
 _WALK_SPEED_MPS = 1.25
+_ROUTING_BOUNDS = {
+    "min_lat": 39.95,
+    "max_lat": 40.01,
+    "min_lng": -75.20,
+    "max_lng": -75.12,
+}
 
 
 def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -85,19 +93,49 @@ def _path_to_linestring(G, path: List[int]) -> Dict[str, Any]:
     return {"type": "LineString", "coordinates": coords}
 
 
-def _path_metrics(G, path: List[int]) -> Tuple[float, float, float]:
-    dist = time = risk_w = 0.0
+def _is_in_bounds(lng: float, lat: float) -> bool:
+    return (
+        _ROUTING_BOUNDS["min_lat"] <= lat <= _ROUTING_BOUNDS["max_lat"]
+        and _ROUTING_BOUNDS["min_lng"] <= lng <= _ROUTING_BOUNDS["max_lng"]
+    )
+
+
+def _validate_requested_points(
+    origin_lng: float,
+    origin_lat: float,
+    dest_lng: float,
+    dest_lat: float,
+) -> None:
+    if not _is_in_bounds(origin_lng, origin_lat) or not _is_in_bounds(dest_lng, dest_lat):
+        raise ValueError("Requested points must be within the supported Temple-area routing zone")
+
+    straight_line_m = _haversine_m(origin_lat, origin_lng, dest_lat, dest_lng)
+    if straight_line_m > settings.max_route_distance_m:
+        raise ValueError(
+            f"Requested route is too long for this Temple-area service "
+            f"({straight_line_m:.0f}m > {settings.max_route_distance_m}m)"
+        )
+
+
+def _path_metrics(G, path: List[int]) -> Tuple[float, float, float, float, int]:
+    dist = time = risk_w = max_risk = 0.0
+    elevated_segments = 0
+    elevated_threshold = elevated_risk_threshold()
     for u, v in zip(path[:-1], path[1:]):
         edge_data = G.get_edge_data(u, v)
         if edge_data is None:
             continue
         e = list(edge_data.values())[0]
         ln = e.get("length", 0.0)
+        risk = e.get("risk", 0.0)
         dist += ln
         time += e.get("travel_time", ln / _WALK_SPEED_MPS)
-        risk_w += e.get("risk", 0.0) * ln
+        risk_w += risk * ln
+        max_risk = max(max_risk, risk)
+        if risk >= elevated_threshold:
+            elevated_segments += 1
     avg_risk = risk_w / dist if dist > 0 else 0.0
-    return dist, time, avg_risk
+    return dist, time, avg_risk, max_risk, elevated_segments
 
 
 def _path_segments(G, path: List[int]) -> List[Dict[str, Any]]:
@@ -163,6 +201,8 @@ def compute_routes(
     if G is None:
         raise RuntimeError("Road graph not loaded yet — try again in a moment")
 
+    _validate_requested_points(origin_lng, origin_lat, dest_lng, dest_lat)
+
     logger.info(
         "Route request: origin=(lng=%.6f, lat=%.6f)  destination=(lng=%.6f, lat=%.6f)",
         origin_lng, origin_lat, dest_lng, dest_lat,
@@ -205,6 +245,13 @@ def compute_routes(
             "Use points that are further apart."
         )
 
+    max_snap_m = settings.max_snap_distance_m
+    if orig_snap_m > max_snap_m or dest_snap_m > max_snap_m:
+        raise ValueError(
+            "One or both points are too far from the supported walking network "
+            f"(snap distances: {orig_snap_m:.0f}m, {dest_snap_m:.0f}m; limit {max_snap_m}m)"
+        )
+
     _check_edge_weights(G)
 
     results: Dict[str, Optional[Dict]] = {}
@@ -214,16 +261,22 @@ def compute_routes(
         logger.info("Mode=%s: starting A* (weight=%s)", mode, weight_attr)
         try:
             path = nx.astar_path(G, orig, dest, heuristic=heuristic, weight=weight_attr)
-            dist, time, risk = _path_metrics(G, path)
+            dist, time, risk, max_risk, elevated_segments = _path_metrics(G, path)
             logger.info(
-                "Mode=%s: path found — %d nodes, %.0f m, %.0f s, avg_risk=%.4f",
-                mode, len(path), dist, time, risk,
+                "Mode=%s: path found — %d nodes, %.0f m, %.0f s, avg_risk=%.4f max_risk=%.4f",
+                mode, len(path), dist, time, risk, max_risk,
             )
             results[mode] = {
                 "geometry": _path_to_linestring(G, path),
                 "distance_m": round(dist, 1),
                 "duration_s": round(time, 1),
                 "risk_score": round(risk, 4),
+                "risk_label": risk_label(risk),
+                "risk_percentile": round(risk_percentile(risk), 4),
+                "max_segment_risk": round(max_risk, 4),
+                "max_segment_risk_label": risk_label(max_risk),
+                "max_segment_risk_percentile": round(risk_percentile(max_risk), 4),
+                "elevated_segment_count": elevated_segments,
                 "segments": _path_segments(G, path),
             }
         except nx.NodeNotFound as exc:

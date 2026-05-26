@@ -11,6 +11,12 @@ export interface RouteResult {
   distance_m: number;
   duration_s: number;
   risk_score: number;
+  risk_label: string;
+  risk_percentile: number;
+  max_segment_risk: number;
+  max_segment_risk_label: string;
+  max_segment_risk_percentile: number;
+  elevated_segment_count: number;
   segments: RouteSegment[];
 }
 
