@@ -7,11 +7,24 @@ const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const PROXIMITY = "-75.1557,39.9812";
 const BBOX = "-75.25,39.90,-75.05,40.05";
 
+const UNREACHABLE_MESSAGE = "Can't reach the TuMaps server. Please try again in a moment.";
+
+// fetch() only rejects on network-level failures (server down, DNS, CORS),
+// and browsers word those differently ("Load failed", "Failed to fetch").
+// Normalise them into one readable message for the UI.
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API}${path}`, init);
+  } catch {
+    throw new Error(UNREACHABLE_MESSAGE);
+  }
+}
+
 export async function fetchRoutes(
   origin: [number, number],
   destination: [number, number],
 ): Promise<RoutesResponse> {
-  const res = await fetch(`${API}/api/routes`, {
+  const res = await apiFetch("/api/routes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ origin, destination }),
@@ -24,13 +37,13 @@ export async function fetchRoutes(
 }
 
 export async function fetchIncidents(): Promise<IncidentCollection> {
-  const res = await fetch(`${API}/api/incidents`);
+  const res = await apiFetch("/api/incidents");
   if (!res.ok) throw new Error("Failed to load incident data");
   return res.json();
 }
 
 export async function fetchRiskSegments(): Promise<RiskSegmentCollection> {
-  const res = await fetch(`${API}/api/segments/risk`);
+  const res = await apiFetch("/api/segments/risk");
   if (!res.ok) throw new Error("Failed to load road risk data");
   return res.json();
 }

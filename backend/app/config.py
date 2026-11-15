@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import field_validator
@@ -45,7 +45,13 @@ def normalize_database_url(value: str) -> str:
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://tumaps:tumaps_dev@localhost/tumaps"
-    cors_origins: List[str] = ["http://localhost:3000"]
+    cors_origins: List[str] = [
+        "http://localhost:3000",
+        "https://tu-maps.vercel.app",
+    ]
+    # Matches the production domain plus Vercel preview deployments,
+    # e.g. https://tu-maps-git-feature-x.vercel.app
+    cors_origin_regex: Optional[str] = r"https://tu-maps(-[a-z0-9-]+)?\.vercel\.app"
 
     @field_validator("database_url", mode="before")
     @classmethod
