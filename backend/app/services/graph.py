@@ -141,6 +141,17 @@ def get_risk_version() -> int:
     return _risk_version
 
 
+# Points a little past the graph's edge still snap to a nearby street; beyond
+# this the nearest node would be a misleading stand-in for the real location.
+SERVICE_RADIUS_M = RADIUS_M + 300
+
+
+def within_service_area(lng: float, lat: float) -> bool:
+    dy = (lat - CENTER[0]) * _SCALE_LAT
+    dx = (lng - CENTER[1]) * _SCALE_LNG
+    return math.hypot(dx, dy) <= SERVICE_RADIUS_M
+
+
 def nearest_node(lng: float, lat: float) -> int:
     """Closest graph node to a WGS-84 point (KD-tree in a local metric projection)."""
     if _node_tree is None:

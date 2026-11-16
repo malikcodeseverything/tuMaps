@@ -7,9 +7,11 @@ __pycache__/
 node_modules/
 .next/
 
-# Environment variables
+# Environment variables (every variant; only the examples are committed)
 .env
-.env.local
+.env.*
+!.env.example
+!.env.local.example
 
 # Mac
 .DS_Store

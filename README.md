@@ -13,7 +13,7 @@ Walking directions around Temple University that weigh **historical incident dat
 - **Three routing strategies** computed in one request, with A* search on an OpenStreetMap walking network
 - **Risk scoring per street segment** from about 3 years of Philadelphia police incident data, weighted by severity and recency
 - **Incident heatmap** and colour-coded road risk overlay (Mapbox GL JS)
-- **Search or pick on the map**: address search with Mapbox geocoding, and map clicks resolve to the nearest place or address
+- **Search or pick on the map**: about 100 built-in campus and nearby places (buildings, residence halls, apartments, SEPTA stations, groceries, gyms) match instantly as you type, Mapbox geocoding covers street addresses, and every suggestion is limited to the routable area
 - **Self-refreshing data**: the API re-ingests new incidents daily and recomputes risk without redeploying
 - **Scale to zero, $0 hosting**: the API and the database both sleep when idle; a landing page wakes the API while visitors read, so they rarely notice
 - **Resilient startup**: waits for the database, and starts in degraded mode with background retries if the road graph can't be loaded
@@ -170,6 +170,16 @@ npm run dev
 | `GET` | `/api/incidents` | Weighted heatmap points plus `meta` (incident count and date range) |
 | `GET` | `/api/segments/risk` | Street segments with normalised risk, for the road overlay |
 | `GET` | `/health` | Service status and whether the road graph is loaded |
+
+## Security and privacy
+
+The API is public and has no accounts, so the hardening focuses on abuse, input handling and not collecting data:
+
+- **Strict input validation:** coordinates must be real numbers inside the mapped area; anything else gets a 422 that never echoes the submitted values back. Request bodies are capped at 4 KB.
+- **Abuse limits:** route computation (the only CPU-heavy endpoint) is rate limited per client and capped at two concurrent searches, which run off the event loop so the rest of the API stays responsive. The server also caps open connections.
+- **Locked-down browser access:** CORS allows only the site's own origin, `GET`/`POST` and the `Content-Type` header, with no credentials. The site sends a strict Content Security Policy plus `X-Frame-Options`, `nosniff`, `Referrer-Policy` and `Permissions-Policy` headers.
+- **Privacy:** route requests are never stored, and logs record timings and outcomes, not where anyone walked.
+- **Small attack surface:** no user data or secrets in the frontend (the Mapbox token is a public token by design), parameterised database access only, the API container runs as an unprivileged user with no compilers installed, and dependencies are pinned with no known vulnerabilities at the time of writing.
 
 ## Limitations and responsible use
 

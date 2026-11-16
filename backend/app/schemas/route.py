@@ -1,10 +1,18 @@
-from pydantic import BaseModel
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Annotated, Any, Dict, List, Optional, Tuple
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# Real coordinates only: NaN and Infinity are valid JSON floats in Python's
+# parser and would otherwise reach the nearest-node lookup.
+Longitude = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)]
+Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
 
 
 class RouteRequest(BaseModel):
-    origin: Tuple[float, float]       # [lng, lat]
-    destination: Tuple[float, float]  # [lng, lat]
+    model_config = ConfigDict(extra="forbid")
+
+    origin: Tuple[Longitude, Latitude]
+    destination: Tuple[Longitude, Latitude]
 
 
 class RouteSegment(BaseModel):

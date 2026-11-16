@@ -127,10 +127,10 @@ def _path_segments(G, path: List[int]) -> List[Dict[str, Any]]:
 def _check_edge_weights(G) -> None:
     """Warn if routing weights are missing from graph edges (e.g. risk skipped)."""
     required = ("safest_weight", "fastest_weight", "balanced_weight")
-    edges = list(G.edges(keys=True, data=True))
-    if not edges:
+    first = next(iter(G.edges(keys=True, data=True)), None)  # one sample, not a copy of every edge
+    if first is None:
         return
-    _, _, _, sample = edges[0]
+    _, _, _, sample = first
     missing = [w for w in required if w not in sample]
     if missing:
         logger.error(
@@ -163,21 +163,12 @@ def compute_routes(
     if G is None:
         raise RuntimeError("Road graph not loaded yet — try again in a moment")
 
-    logger.info(
-        "Route request: origin=(lng=%.6f, lat=%.6f)  destination=(lng=%.6f, lat=%.6f)",
-        origin_lng, origin_lat, dest_lng, dest_lat,
-    )
-
     # Nearest-node lookup — wrap explicitly so callers get a meaningful error
     try:
         orig = nearest_node(origin_lng, origin_lat)
         dest = nearest_node(dest_lng, dest_lat)
     except Exception:
-        logger.exception(
-            "nearest_node lookup failed for origin=(%.6f, %.6f) dest=(%.6f, %.6f). "
-            "Points may be outside the mapped area.",
-            origin_lng, origin_lat, dest_lng, dest_lat,
-        )
+        logger.exception("nearest_node lookup failed")
         raise RuntimeError(
             "Could not resolve graph nodes for the requested coordinates. "
             "Ensure both points are within the Temple campus area."
@@ -192,18 +183,11 @@ def compute_routes(
     orig_snap_m = _haversine_m(origin_lat, origin_lng, orig_node_lat, orig_node_lng)
     dest_snap_m = _haversine_m(dest_lat, dest_lng, dest_node_lat, dest_node_lng)
 
-    logger.info(
-        "Snapped nodes: origin_node=%d (node at lng=%.6f, lat=%.6f, snap=%.1fm)  "
-        "dest_node=%d (node at lng=%.6f, lat=%.6f, snap=%.1fm)",
-        orig, orig_node_lng, orig_node_lat, orig_snap_m,
-        dest, dest_node_lng, dest_node_lat, dest_snap_m,
-    )
+    # Snap distances only: node ids or coordinates would reveal where people walk.
+    logger.debug("Snapped to graph: origin %.1f m, destination %.1f m", orig_snap_m, dest_snap_m)
 
     if orig == dest:
-        raise ValueError(
-            f"Origin and destination both resolve to the same graph node ({orig}). "
-            "Use points that are further apart."
-        )
+        raise ValueError("Start and destination are too close together. Pick points further apart.")
 
     _check_edge_weights(G)
 
@@ -211,11 +195,11 @@ def compute_routes(
 
     for mode, weight_attr in _MODES.items():
         heuristic = _make_heuristic(G, dest, weight_attr)
-        logger.info("Mode=%s: starting A* (weight=%s)", mode, weight_attr)
+        logger.debug("Mode=%s: starting A* (weight=%s)", mode, weight_attr)
         try:
             path = nx.astar_path(G, orig, dest, heuristic=heuristic, weight=weight_attr)
             dist, time, risk = _path_metrics(G, path)
-            logger.info(
+            logger.debug(
                 "Mode=%s: path found — %d nodes, %.0f m, %.0f s, avg_risk=%.4f",
                 mode, len(path), dist, time, risk,
             )
@@ -244,6 +228,6 @@ def compute_routes(
             results[mode] = None
 
     successful = sum(1 for v in results.values() if v is not None)
-    logger.info("Route computation complete: %d/%d modes succeeded", successful, len(_MODES))
+    logger.debug("Route computation complete: %d/%d modes succeeded", successful, len(_MODES))
 
     return results

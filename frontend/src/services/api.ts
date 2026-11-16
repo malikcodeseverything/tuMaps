@@ -82,8 +82,10 @@ export async function fetchRoutes(
     onWaking,
   );
   if (!res.ok) {
+    // The API sends a readable message in `detail` (outside the mapped area,
+    // too many requests, points too close together).
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Route calculation failed");
+    throw new Error(typeof err.detail === "string" ? err.detail : "Route calculation failed");
   }
   return res.json();
 }

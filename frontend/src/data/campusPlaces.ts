@@ -55,6 +55,15 @@ const SECTIONS: Array<[PlaceKind, Entry[]]> = [
     ["Student Pavilion", "Recreation", 39.982202, -75.158229],
   ]],
 
+  ["transit", [
+    ["Temple University Station", "SEPTA Regional Rail", 39.981584, -75.14952, ["septa", "train", "regional rail"]],
+    ["Cecil B. Moore Station", "SEPTA Broad Street Line", 39.97857, -75.157901, ["septa", "subway", "bsl"]],
+    ["Susquehanna-Dauphin Station", "SEPTA Broad Street Line", 39.987096, -75.156042, ["septa", "subway", "bsl"]],
+    ["Girard Station", "SEPTA Broad Street Line", 39.971499, -75.15946, ["septa", "subway", "bsl"]],
+    ["North Philadelphia Station", "SEPTA Broad Street Line", 39.994656, -75.154392, ["septa", "subway", "bsl"]],
+    ["North Broad Station", "SEPTA Regional Rail", 39.992215, -75.153904, ["septa", "train", "regional rail"]],
+  ]],
+
   ["gym", [
     ["IBC Student Recreation Center", "Temple gym", 39.979199, -75.158996, ["ibc", "rec center"]],
     ["STAR Complex", "Temple gym and fields", 39.9811, -75.159689, ["aramark star"]],
@@ -128,15 +137,6 @@ const SECTIONS: Array<[PlaceKind, Entry[]]> = [
   ["safety", [
     ["Temple University Police", "Campus safety", 39.979718, -75.152924, ["campus safety", "tupd", "police"]],
     ["22nd Police District", "Philadelphia Police, 1727 N 17th St", 39.980542, -75.162098, ["police"]],
-  ]],
-
-  ["transit", [
-    ["Temple University Station", "SEPTA Regional Rail", 39.981584, -75.14952, ["septa", "train", "regional rail"]],
-    ["Cecil B. Moore Station", "SEPTA Broad Street Line", 39.97857, -75.157901, ["septa", "subway", "bsl"]],
-    ["Susquehanna-Dauphin Station", "SEPTA Broad Street Line", 39.987096, -75.156042, ["septa", "subway", "bsl"]],
-    ["Girard Station", "SEPTA Broad Street Line", 39.971499, -75.15946, ["septa", "subway", "bsl"]],
-    ["North Philadelphia Station", "SEPTA Broad Street Line", 39.994656, -75.154392, ["septa", "subway", "bsl"]],
-    ["North Broad Station", "SEPTA Regional Rail", 39.992215, -75.153904, ["septa", "train", "regional rail"]],
   ]],
 
   ["parking", [

@@ -5,12 +5,15 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .config import settings, log_runtime_config
 from .database import create_tables, wait_for_db
 from .routers import routes, incidents, segments
+from .security import SecurityMiddleware
 from .services import graph as graph_service
 from .services import heatmap
 from .services.ingestion.pipeline import latest_incident_date, run_ingest
@@ -147,15 +150,33 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TuMaps Safety API", version="1.0.0", lifespan=lifespan)
 
+# Body size cap and security headers. Added first so CORS (added last, so
+# outermost) still decorates its error responses for the browser.
+app.add_middleware(SecurityMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_origin_regex=settings.cors_origin_regex,
     # The frontend sends no cookies or auth headers, so credentials stay off.
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+    max_age=3600,
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 without echoing the submitted values back.
+
+    FastAPI's default handler includes each bad input in the response; for a
+    NaN coordinate that can't even be encoded as JSON and became a 500.
+    """
+    errors = [
+        {"loc": [str(part) for part in e.get("loc", ())], "msg": e.get("msg", ""), "type": e.get("type", "")}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": "Invalid request", "errors": errors})
+
 
 app.include_router(routes.router)
 app.include_router(incidents.router)
