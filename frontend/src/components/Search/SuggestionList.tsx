@@ -1,14 +1,30 @@
 "use client";
-import { Building2, CircleParking, LoaderCircle, MapPin, TrainFront } from "lucide-react";
+import {
+  Building2, CircleParking, Coffee, Dumbbell, House, LoaderCircle, MapPin,
+  Pill, Shield, ShoppingCart, Store, TrainFront,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { PlaceCombobox } from "@/hooks/usePlaceSearch";
-import type { Place } from "@/types";
+import type { Place, PlaceKind } from "@/types";
+
+const KIND_ICONS: Record<PlaceKind, [LucideIcon, string]> = {
+  campus: [Building2, "text-rose-400"],
+  residence: [House, "text-rose-300"],
+  housing: [House, "text-amber-300"],
+  transit: [TrainFront, "text-sky-400"],
+  grocery: [ShoppingCart, "text-emerald-400"],
+  store: [Store, "text-gray-300"],
+  pharmacy: [Pill, "text-emerald-300"],
+  gym: [Dumbbell, "text-violet-300"],
+  food: [Coffee, "text-orange-300"],
+  safety: [Shield, "text-blue-400"],
+  parking: [CircleParking, "text-gray-400"],
+  other: [MapPin, "text-gray-400"],
+};
 
 function PlaceIcon({ place }: { place: Place }) {
-  const cls = "flex-shrink-0 mt-0.5";
-  if (place.source === "mapbox") return <MapPin size={14} className={`${cls} text-gray-400`} />;
-  if (place.detail.startsWith("SEPTA")) return <TrainFront size={14} className={`${cls} text-sky-400`} />;
-  if (place.detail === "Parking") return <CircleParking size={14} className={`${cls} text-gray-400`} />;
-  return <Building2 size={14} className={`${cls} text-rose-400`} />;
+  const [Icon, color] = place.source === "mapbox" ? KIND_ICONS.other : KIND_ICONS[place.kind ?? "other"];
+  return <Icon size={14} className={`flex-shrink-0 mt-0.5 ${color}`} />;
 }
 
 interface Props {
@@ -33,7 +49,7 @@ export default function SuggestionList({ box, className = "" }: Props) {
     >
       {isQuickPicks && (
         <p className="px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-gray-500">
-          Popular on campus
+          Popular places
         </p>
       )}
 

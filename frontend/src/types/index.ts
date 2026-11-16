@@ -56,12 +56,17 @@ export interface HealthStatus {
   startup_seconds: number;
 }
 
-/** A searchable place: a built-in campus location or a Mapbox address result. */
+export type PlaceKind =
+  | "campus" | "residence" | "housing" | "transit" | "grocery" | "store"
+  | "pharmacy" | "gym" | "food" | "safety" | "parking" | "other";
+
+/** A searchable place: a built-in local place or a Mapbox address result. */
 export interface Place {
   id: string;
   name: string;   // "Charles Library", "1801 N Broad St"
   detail: string; // "Library", "Philadelphia, Pennsylvania 19122"
   center: [number, number]; // [lng, lat]
   source: "campus" | "mapbox";
+  kind?: PlaceKind;
   aliases?: string[];
 }
