@@ -42,7 +42,7 @@
 ## Architecture decisions
 
 ### Why KD-tree instead of PostGIS ST_DWithin for risk scoring?
-Loading all incidents once at startup and querying a scipy KDTree is O(n log m) and avoids N+1 DB queries per edge. For ~70k incidents × ~37k edges this is ~5× faster than N individual PostGIS queries and keeps the risk computation self-contained in the graph service.
+Loading all incidents once at startup and querying a scipy KDTree is O(n log m) and avoids N+1 DB queries per edge. For ~70k incidents × ~32k edges this is ~5× faster than N individual PostGIS queries and keeps the risk computation self-contained in the graph service.
 
 ### Why OSMnx `walk` network?
 Campus users are primarily pedestrians. Restricting to walkable edges also reduces graph size (~30%), improving A* speed.

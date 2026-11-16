@@ -38,7 +38,7 @@ flowchart LR
     API -- "daily refresh" --> PHL[Philadelphia Open Data<br/>Carto SQL API]
 ```
 
-The API keeps the road graph (about 11k nodes and 37k edges) in memory. Each edge carries a precomputed risk score, so a routing request is pure graph search with no database queries.
+The API keeps the road graph (about 10k nodes and 32k edges) in memory. Each edge carries a precomputed risk score, so a routing request is pure graph search with no database queries.
 
 ## How it works
 
@@ -176,7 +176,7 @@ npm run dev
 The API is public and has no accounts, so the hardening focuses on abuse, input handling and not collecting data:
 
 - **Strict input validation:** coordinates must be real numbers inside the mapped area; anything else gets a 422 that never echoes the submitted values back. Request bodies are capped at 4 KB.
-- **Abuse limits:** route computation (the only CPU-heavy endpoint) is rate limited per client and capped at two concurrent searches, which run off the event loop so the rest of the API stays responsive. The server also caps open connections.
+- **Abuse limits:** route computation (the only CPU-heavy endpoint) is rate limited per client, capped in total across all clients so a flood from many addresses is bounded too, and limited to two concurrent searches that run off the event loop so the rest of the API stays responsive. The server also caps open connections. None of the hosting accounts has a payment method attached, so abuse can at worst pause the free tier, never create a bill.
 - **Locked-down browser access:** CORS allows only the site's own origin, `GET`/`POST` and the `Content-Type` header, with no credentials. The site sends a strict Content Security Policy plus `X-Frame-Options`, `nosniff`, `Referrer-Policy` and `Permissions-Policy` headers.
 - **Privacy:** route requests are never stored, and logs record timings and outcomes, not where anyone walked.
 - **Small attack surface:** no user data or secrets in the frontend (the Mapbox token is a public token by design), parameterised database access only, the API container runs as an unprivileged user with no compilers installed, and dependencies are pinned with no known vulnerabilities at the time of writing.

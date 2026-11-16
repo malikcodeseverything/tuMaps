@@ -4,6 +4,8 @@
 - Every response carries basic security headers.
 - Route computation, the only CPU-heavy endpoint, is rate limited per client
   and capped in concurrency, so one client can't monopolize the single vCPU.
+- A global cap across all clients bounds the total work even when a flood
+  comes from many addresses at once.
 """
 import asyncio
 import time
@@ -131,6 +133,10 @@ class RateLimiter:
 # A person planning a walk makes a handful of route requests a minute.
 route_limiter = RateLimiter(per_minute=30, burst=10)
 
+# All clients combined. Normal traffic is far below this; it only matters if
+# requests arrive from many addresses at once, where per-client limits don't help.
+global_route_limiter = RateLimiter(per_minute=300, burst=60)
+
 # One vCPU: more parallel A* searches would only slow each other down.
 MAX_CONCURRENT_ROUTES = 2
 ROUTE_QUEUE_TIMEOUT_S = 10
@@ -143,6 +149,15 @@ def enforce_route_rate_limit(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail="Too many route requests. Please wait a few seconds and try again.",
+            headers={"Retry-After": str(max(1, round(wait)))},
+        )
+    wait = global_route_limiter.check("all")
+    if wait:
+        # 429 rather than 503: the frontend treats 503 as "server waking up"
+        # and retries, while 429 shows this message straight away.
+        raise HTTPException(
+            status_code=429,
+            detail="TuMaps is getting a lot of requests right now. Please try again in a minute.",
             headers={"Retry-After": str(max(1, round(wait)))},
         )
 
