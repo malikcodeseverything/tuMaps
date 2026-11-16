@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import List
@@ -8,11 +9,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings, log_runtime_config
-from .database import create_tables, async_session_factory, wait_for_db
+from .database import create_tables, wait_for_db
 from .routers import routes, incidents, segments
 from .services import graph as graph_service
+from .services import heatmap
 from .services.ingestion.pipeline import latest_incident_date, run_ingest
-from .services.risk import compute_and_apply
+from .services.risk import load_or_compute_risk
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -21,13 +23,15 @@ _GRAPH_RETRY_INTERVAL_S = 60
 _GRAPH_RETRY_MAX_ATTEMPTS = 10
 _REFRESH_FIRST_CHECK_DELAY_S = 30  # let startup finish before the first data check
 
+_startup_seconds = 0.0
+
 
 async def _load_graph_and_risks() -> bool:
     """Load the road graph and apply risk weights.
 
     Returns True if the graph is loaded. Failures are logged instead of raised so
     the API can still start (and serve /health and /api/incidents) when the
-    Overpass API is slow or unavailable.
+    graph cannot be loaded.
     """
     loop = asyncio.get_running_loop()
     try:
@@ -37,10 +41,9 @@ async def _load_graph_and_risks() -> bool:
         return False
 
     try:
-        async with async_session_factory() as session:
-            await compute_and_apply(session)
+        await load_or_compute_risk()
     except Exception:
-        logger.exception("Risk computation failed; routes will use unweighted edges")
+        logger.exception("Risk scoring failed; routes will use unweighted edges")
 
     return True
 
@@ -58,8 +61,10 @@ async def _retry_graph_load() -> None:
 async def refresh_incidents_if_stale() -> bool:
     """Re-ingest incidents when the newest stored one is too old.
 
-    Returns True if new data was stored. Acts as a built-in daily job, since
-    scheduled cron services are not available on every hosting plan.
+    Returns True if new data was stored. On success the risk scores and the
+    heatmap are recomputed and stored, so later startups just load them.
+    While the service sleeps nothing runs, so this happens on the first wake
+    after the data goes stale.
     """
     latest = await latest_incident_date()
     age_days = (date.today() - latest).days if latest else None
@@ -72,15 +77,14 @@ async def refresh_incidents_if_stale() -> bool:
     if not stored:
         return False
 
-    incidents.invalidate_cache()
-    async with async_session_factory() as session:
-        await compute_and_apply(session)  # no-op if the graph is not loaded yet
-    logger.info("Incident refresh complete: %d incidents, risk scores updated", stored)
+    await load_or_compute_risk(force=True)  # no-op if the graph is not loaded yet
+    await heatmap.rebuild()
+    logger.info("Incident refresh complete: %d incidents, risk and heatmap updated", stored)
     return True
 
 
-async def _incident_refresh_loop() -> None:
-    await asyncio.sleep(_REFRESH_FIRST_CHECK_DELAY_S)
+async def _incident_refresh_loop(first_delay_s: float) -> None:
+    await asyncio.sleep(first_delay_s)
     while True:
         try:
             await refresh_incidents_if_stale()
@@ -91,23 +95,38 @@ async def _incident_refresh_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _startup_seconds
+    t0 = time.perf_counter()
     log_runtime_config()
     await wait_for_db()
     await create_tables()
 
     background: List[asyncio.Task] = []
     if await _load_graph_and_risks():
-        logger.info("Startup complete, ready to serve requests")
+        degraded = False
     else:
-        logger.warning(
-            "Starting in degraded mode: routing returns 503 until the road graph loads. "
-            "Retrying every %ds in the background.",
-            _GRAPH_RETRY_INTERVAL_S,
-        )
+        degraded = True
         background.append(asyncio.create_task(_retry_graph_load()))
 
+    try:
+        await heatmap.load()
+    except Exception:
+        logger.exception("Heatmap load failed; it will be built on first request")
+
+    _startup_seconds = time.perf_counter() - t0
+    if degraded:
+        logger.warning(
+            "Started in degraded mode in %.1fs: routing returns 503 until the road graph "
+            "loads. Retrying every %ds in the background.",
+            _startup_seconds, _GRAPH_RETRY_INTERVAL_S,
+        )
+    else:
+        logger.info("Startup complete in %.1fs, ready to serve requests", _startup_seconds)
+
     if settings.incident_refresh_hours > 0:
-        background.append(asyncio.create_task(_incident_refresh_loop()))
+        # An empty database (first deploy) is filled right away.
+        first_delay = 0 if not heatmap.get_meta().get("incident_count") else _REFRESH_FIRST_CHECK_DELAY_S
+        background.append(asyncio.create_task(_incident_refresh_loop(first_delay)))
 
     yield
 
@@ -136,9 +155,15 @@ app.include_router(segments.router)
 
 @app.get("/health")
 async def health():
+    """Liveness plus a few facts the landing page shows. Never touches the DB."""
     g = graph_service.get_graph()
+    meta = heatmap.get_meta()
     return {
         "status": "ok" if g is not None else "degraded",
         "graph_loaded": g is not None,
         "graph_nodes": len(g.nodes) if g else 0,
+        "graph_edges": g.number_of_edges() if g else 0,
+        "incident_count": meta.get("incident_count", 0),
+        "data_through": meta.get("data_through"),
+        "startup_seconds": round(_startup_seconds, 1),
     }

@@ -11,9 +11,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Build the road graph into the image so the API never downloads it at
+# startup. Only the files this step needs are copied first, so Docker reuses
+# the cached graph layer unless graph.py or the build script change.
+COPY app/__init__.py app/__init__.py
+COPY app/services/__init__.py app/services/__init__.py
+COPY app/services/graph.py app/services/graph.py
+COPY scripts/build_graph.py scripts/build_graph.py
+RUN python -m scripts.build_graph
 
-RUN mkdir -p /app/data
+COPY . .
 
 EXPOSE 8000
 

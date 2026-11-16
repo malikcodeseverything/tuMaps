@@ -1,4 +1,10 @@
-import type { RoutesResponse, IncidentCollection, RiskSegmentCollection, GeocodeSuggestion } from "@/types";
+import type {
+  RoutesResponse,
+  IncidentCollection,
+  RiskSegmentCollection,
+  GeocodeSuggestion,
+  HealthStatus,
+} from "@/types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -9,26 +15,72 @@ const BBOX = "-75.25,39.90,-75.05,40.05";
 
 const UNREACHABLE_MESSAGE = "Can't reach the TuMaps server. Please try again in a moment.";
 
-// fetch() only rejects on network-level failures (server down, DNS, CORS),
-// and browsers word those differently ("Load failed", "Failed to fetch").
-// Normalise them into one readable message for the UI.
-async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(`${API}${path}`, init);
-  } catch {
-    throw new Error(UNREACHABLE_MESSAGE);
+// The backend sleeps when idle and takes a few seconds to wake. While it does,
+// the host answers 502/503/504 (its error page has no CORS headers, so the
+// browser often reports a plain network error instead). Both are retried
+// until the server is up or the deadline passes.
+const WAKE_DEADLINE_MS = 60_000;
+const WAKING_STATUSES = new Set([502, 503, 504]);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * fetch() against the API that waits out a cold start.
+ * `onWaking` fires once, on the first failed attempt, so the UI can say
+ * "Waking up the server…" instead of showing an error.
+ */
+async function apiFetch(path: string, init?: RequestInit, onWaking?: () => void): Promise<Response> {
+  const deadline = Date.now() + WAKE_DEADLINE_MS;
+  let delay = 1_000;
+  let notified = false;
+
+  for (;;) {
+    try {
+      const res = await fetch(`${API}${path}`, init);
+      if (!WAKING_STATUSES.has(res.status) || Date.now() + delay > deadline) return res;
+    } catch {
+      if (Date.now() + delay > deadline) throw new Error(UNREACHABLE_MESSAGE);
+    }
+    if (!notified) {
+      notified = true;
+      onWaking?.();
+    }
+    await sleep(delay);
+    delay = Math.min(delay * 1.5, 5_000);
+  }
+}
+
+/**
+ * Wake the backend and report its status. Called by the landing page the
+ * moment it loads, so the server is usually ready before the map opens.
+ */
+export async function warmUp(onWaking?: () => void): Promise<HealthStatus> {
+  const res = await apiFetch("/health", { cache: "no-store" }, onWaking);
+  if (!res.ok) throw new Error(UNREACHABLE_MESSAGE);
+  return res.json();
+}
+
+/** Fetch the map overlays into the browser's HTTP cache (they're cached for 10 min). */
+export function prefetchOverlays(): void {
+  for (const path of ["/api/incidents", "/api/segments/risk"]) {
+    fetch(`${API}${path}`).catch(() => undefined);
   }
 }
 
 export async function fetchRoutes(
   origin: [number, number],
   destination: [number, number],
+  onWaking?: () => void,
 ): Promise<RoutesResponse> {
-  const res = await apiFetch("/api/routes", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ origin, destination }),
-  });
+  const res = await apiFetch(
+    "/api/routes",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origin, destination }),
+    },
+    onWaking,
+  );
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Route calculation failed");
@@ -36,8 +88,8 @@ export async function fetchRoutes(
   return res.json();
 }
 
-export async function fetchIncidents(): Promise<IncidentCollection> {
-  const res = await apiFetch("/api/incidents");
+export async function fetchIncidents(onWaking?: () => void): Promise<IncidentCollection> {
+  const res = await apiFetch("/api/incidents", undefined, onWaking);
   if (!res.ok) throw new Error("Failed to load incident data");
   return res.json();
 }

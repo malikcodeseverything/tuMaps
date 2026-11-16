@@ -11,16 +11,28 @@ export function useRoute(
   const [incidents, setIncidents] = useState<IncidentCollection | null>(null);
   const [riskSegments, setRiskSegments] = useState<RiskSegmentCollection | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // True while a route request is waiting for a sleeping backend to start.
+  const [isMapWaking, setIsMapWaking] = useState(false);
+  const [isWaking, setIsWaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Map overlays are optional: routing still works without them.
-    fetchIncidents()
-      .then(setIncidents)
-      .catch((e) => console.warn("Incident heatmap unavailable:", e));
+    let cancelled = false;
+    fetchIncidents(() => {
+      if (!cancelled) setIsMapWaking(true);
+    })
+      .then((data) => {
+        if (!cancelled) setIncidents(data);
+      })
+      .catch((e) => console.warn("Incident heatmap unavailable:", e))
+      .finally(() => {
+        if (!cancelled) setIsMapWaking(false);
+      });
     fetchRiskSegments()
       .then(setRiskSegments)
       .catch((e) => console.warn("Road risk layer unavailable:", e));
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -30,11 +42,15 @@ export function useRoute(
       return;
     }
     setIsLoading(true);
+    setIsWaking(false);
     setError(null);
-    fetchRoutes(origin, destination)
+    fetchRoutes(origin, destination, () => setIsWaking(true))
       .then(setRoutes)
       .catch((e) => setError(e.message))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        setIsWaking(false);
+      });
   }, [origin, destination]);
 
   return {
@@ -43,6 +59,8 @@ export function useRoute(
     riskSegments,
     dataThrough: incidents?.meta?.data_through ?? null,
     isLoading,
+    isWaking,
+    isMapWaking,
     error,
   };
 }

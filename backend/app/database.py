@@ -4,11 +4,16 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 from .config import settings
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(settings.database_url, echo=False, pool_pre_ping=True)
+# NullPool: open a connection per unit of work and close it afterwards.
+# The API touches the database only at startup, on data refresh and on cache
+# misses, so pooling buys nothing, and idle pooled sockets would keep both the
+# API (Railway Serverless) and the database (Neon scale-to-zero) awake.
+engine = create_async_engine(settings.database_url, echo=False, poolclass=NullPool)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

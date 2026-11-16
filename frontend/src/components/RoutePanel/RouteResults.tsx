@@ -6,6 +6,7 @@ interface Props {
   routes: RoutesResponse | null;
   selectedMode: RouteMode;
   isLoading: boolean;
+  isWaking: boolean;
   error: string | null;
   hasPoints: boolean;
 }
@@ -50,7 +51,7 @@ function RiskBar({ score }: { score: number }) {
   );
 }
 
-export default function RouteResults({ routes, selectedMode, isLoading, error, hasPoints }: Props) {
+export default function RouteResults({ routes, selectedMode, isLoading, isWaking, error, hasPoints }: Props) {
   if (!hasPoints) {
     return (
       <div className="px-4 py-4 text-center">
@@ -62,9 +63,15 @@ export default function RouteResults({ routes, selectedMode, isLoading, error, h
 
   if (isLoading) {
     return (
-      <div className="px-4 py-4 flex items-center gap-2 text-gray-400">
-        <Loader2 size={14} className="animate-spin flex-shrink-0" />
-        <span className="text-xs">Calculating routes…</span>
+      <div className="px-4 py-4 flex items-start gap-2 text-gray-400">
+        <Loader2 size={14} className="animate-spin flex-shrink-0 mt-0.5" />
+        {isWaking ? (
+          <span className="text-xs leading-relaxed">
+            Waking up the server… It sleeps when nobody is using it, so the first route takes a few seconds.
+          </span>
+        ) : (
+          <span className="text-xs">Calculating routes…</span>
+        )}
       </div>
     );
   }

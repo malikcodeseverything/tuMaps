@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import type { RouteMode, RoutesResponse, SelectingMode } from "@/types";
 import LocationSearch from "./LocationSearch";
 import RouteTypeToggle from "./RouteTypeToggle";
@@ -21,6 +22,8 @@ interface Props {
   selectedMode: RouteMode;
   routes: RoutesResponse | null;
   isLoading: boolean;
+  isWaking: boolean;
+  isMapWaking: boolean;
   error: string | null;
   selectingMode: SelectingMode;
   onOriginChange: (pt: [number, number] | null) => void;
@@ -36,6 +39,8 @@ export default function RoutePanel({
   selectedMode,
   routes,
   isLoading,
+  isWaking,
+  isMapWaking,
   error,
   selectingMode,
   onOriginChange,
@@ -47,12 +52,22 @@ export default function RoutePanel({
     <div className="absolute top-4 left-4 z-10 w-80 rounded-2xl bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700/50 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-700/50">
-        <h1 className="text-sm font-semibold text-white tracking-wide">Temple Safety Routes</h1>
+        <h1 className="text-sm font-semibold text-white tracking-wide">
+          <Link href="/" className="hover:text-gray-300 transition-colors" title="About TuMaps">
+            Temple Safety Routes
+          </Link>
+        </h1>
         <p className="text-xs text-gray-400 mt-0.5">
           Historical risk · Philadelphia data
           {dataThrough && <> through {formatDataDate(dataThrough)}</>}
         </p>
       </div>
+
+      {isMapWaking && !isWaking && (
+        <p role="status" className="px-4 py-2 text-xs text-amber-200 border-b border-gray-700/50">
+          Waking up the routing server…
+        </p>
+      )}
 
       {/* Location inputs */}
       <div className="px-4 py-3 space-y-2 border-b border-gray-700/50">
@@ -98,6 +113,7 @@ export default function RoutePanel({
         routes={routes}
         selectedMode={selectedMode}
         isLoading={isLoading}
+        isWaking={isWaking}
         error={error}
         hasPoints={!!(origin && destination)}
       />

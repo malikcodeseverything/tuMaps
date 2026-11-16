@@ -46,6 +46,16 @@ export interface RiskSegmentCollection {
   }>;
 }
 
+export interface HealthStatus {
+  status: "ok" | "degraded";
+  graph_loaded: boolean;
+  graph_nodes: number;
+  graph_edges: number;
+  incident_count: number;
+  data_through: string | null;
+  startup_seconds: number;
+}
+
 export interface GeocodeSuggestion {
   id: string;
   place_name: string;

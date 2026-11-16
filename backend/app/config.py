@@ -1,6 +1,6 @@
 import logging
 from typing import List, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -40,7 +40,29 @@ def normalize_database_url(value: str) -> str:
     elif value.startswith("postgresql://"):
         value = value.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+    if value.startswith("postgresql+asyncpg://"):
+        value = _asyncpg_query_params(value)
+
     return value
+
+
+def _asyncpg_query_params(url: str) -> str:
+    """Translate libpq-style query params (as in Neon connection strings) for asyncpg.
+
+    Hosted Postgres providers hand out URLs like
+    ...?sslmode=require&channel_binding=require. asyncpg rejects those keyword
+    arguments; it takes `ssl` instead and negotiates channel binding itself.
+    """
+    parts = urlsplit(url)
+    params = []
+    for key, val in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "sslmode":
+            params.append(("ssl", val))
+        elif key == "channel_binding":
+            continue
+        else:
+            params.append((key, val))
+    return urlunsplit(parts._replace(query=urlencode(params)))
 
 
 class Settings(BaseSettings):
@@ -75,3 +97,9 @@ settings = Settings()
 
 def log_runtime_config() -> None:
     logger.info("Using DATABASE_URL=%s", mask_database_url(settings.database_url))
+    host = urlsplit(settings.database_url).hostname or ""
+    if "-pooler." in host:
+        logger.warning(
+            "DATABASE_URL points at a connection pooler (PgBouncer). asyncpg's prepared "
+            "statements can fail behind it; use the direct (non-pooled) connection string."
+        )

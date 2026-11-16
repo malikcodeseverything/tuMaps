@@ -1,0 +1,176 @@
+.landing {
+  --page: #fff;
+  --muted: #504d4c;
+  --accent: #9d1838;
+  --globe-x: 74vw;
+  --globe-y: 53svh;
+  --globe-scale: 1;
+  --globe-opacity: 1;
+  isolation: isolate;
+  overflow: clip;
+  color: #201e1e;
+  background: var(--page);
+}
+.landing[data-scene="1"] { --globe-x: 83vw; --globe-y: 34svh; --globe-scale: .86; --globe-opacity: .82; }
+.landing[data-scene="2"] { --globe-x: 25vw; --globe-y: 51svh; --globe-scale: 1.15; --globe-opacity: .75; }
+.landing[data-scene="3"] { --globe-x: 50vw; --globe-y: 60svh; --globe-scale: 1.4; --globe-opacity: .40; }
+
+.progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--accent);
+  transform: scaleX(var(--scroll-progress, 0));
+  transform-origin: left;
+  z-index: 5;
+}
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem max(5vw, calc((100vw - 1300px) / 2));
+  background: #ffffffed;
+  border-bottom: 1px solid #e8e5e1;
+  backdrop-filter: blur(16px);
+}
+.brand, .header nav, .headerCta, .cta, .secondary, .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.brand { color: inherit; font: 700 1.4rem var(--font-display, system-ui), sans-serif; letter-spacing: -.05em; }
+.brand svg { color: var(--accent); }
+.header nav { gap: clamp(.8rem, 3vw, 2.5rem); font-size: .875rem; }
+.header nav > a:not(.headerCta) { color: var(--muted); }
+.header nav > a:hover { color: var(--accent); }
+.headerCta, .cta, .secondary {
+  width: fit-content;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: .7rem 1rem;
+  font-weight: 600;
+}
+.headerCta { border: 1px solid #d6d0cc; white-space: nowrap; }
+.cta { background: #a0193c; color: #fff; padding: .9rem 1.15rem; }
+.cta:hover { background: #7c1230; }
+.secondary { color: #861733; }
+.secondary:hover, .headerCta:hover { background: #f4f2ef; }
+.landing a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.globe {
+  position: fixed;
+  pointer-events: none;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  width: min(60vw, 800px);
+  transform: translate3d(var(--globe-x), var(--globe-y), 0) translate(-50%, -50%) scale(var(--globe-scale));
+  opacity: var(--globe-opacity);
+  transition: transform 1.35s cubic-bezier(.23, 1, .32, 1), opacity .9s ease;
+}
+.globe::before {
+  content: "";
+  position: absolute;
+  inset: 2%;
+  background: #96938f;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: .17;
+  z-index: -1;
+}
+.globe canvas { display: block; width: 100%; height: auto; }
+
+.section {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 100svh;
+  scroll-margin-top: 77px;
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 5rem 5vw;
+}
+.hero { min-height: calc(100svh - 77px); }
+.inner { width: min(100%, 550px); }
+.eyebrow {
+  color: var(--accent);
+  font: 500 .68rem "JetBrains Mono", monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.landing h1, .landing h2 {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -.078em;
+  line-height: .98;
+}
+.landing h1 { margin: 1.25rem 0; font-size: clamp(3.2rem, 6.5vw, 6.8rem); }
+.landing h2 { margin: 0 0 1.25rem; font-size: clamp(2.65rem, 5vw, 5rem); }
+.landing em { color: var(--accent); font-style: normal; }
+.lead { max-width: 29rem; color: var(--muted); font-size: clamp(1rem, 1.4vw, 1.2rem); line-height: 1.65; }
+.actions { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-top: 1.75rem; }
+.rail {
+  position: fixed;
+  z-index: 3;
+  top: 50%;
+  right: max(.75rem, calc((100vw - 1440px) / 4));
+  transform: translateY(-50%);
+  display: grid;
+}
+.rail a { width: 30px; height: 34px; display: grid; place-items: center; position: relative; }
+.rail a::before { content: ""; width: 9px; height: 9px; border: 1px solid #817c78; border-radius: 50%; }
+.rail a[aria-current]::before { background: var(--accent); }
+.rail span { display: none; position: absolute; right: 100%; white-space: nowrap; padding: .4rem .65rem; background: #fff; border: 1px solid #d6d0cc; border-radius: 5px; font-size: .75rem; }
+.rail a:hover span, .rail a:focus-visible span { display: block; }
+.modes { display: grid; gap: .65rem; margin-top: 1.5rem; }
+.modes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  border: 1px solid #dedad6;
+  border-radius: 10px;
+  padding: .9rem 1rem;
+  background: #fff;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .modes li:hover {
+    transform: scale(1.025);
+    border-color: #9d1838;
+    box-shadow: 0 6px 20px #201e1e16;
+  }
+}
+.modes svg { margin-top: .15rem; flex: none; }
+.modes h3 { font-weight: 650; }
+.modes p, .note { margin-top: .25rem; font-size: .875rem; color: var(--muted); line-height: 1.5; }
+.data { justify-content: flex-end; }
+.stats { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin: 1.6rem 0; }
+.stats dt { font-size: .8rem; color: var(--muted); }
+.stats dd { color: var(--accent); font-size: 1.5rem; font-weight: 650; }
+.note { margin-top: 1.25rem; }
+.mapPreview { margin-top: 1.5rem; }
+.mapPreview img { width: 100%; height: auto; border: 1px solid #dedad6; border-radius: 10px; }
+.mapPreview figcaption { margin-top: .5rem; color: var(--muted); font-size: .8rem; }
+.start { justify-content: center; text-align: center; }
+.start .cta { margin: 1.75rem auto 0; }
+
+@media (max-width: 760px) {
+  .header nav > a:not(.headerCta), .rail { display: none; }
+  .header { padding-inline: 1.15rem; }
+  .section { padding-inline: 1.25rem; }
+  .hero { align-items: flex-start; padding-top: clamp(2.8rem, 8svh, 5rem); padding-bottom: min(80vw, 43svh); }
+  .globe { width: min(100vw, 56svh); }
+  .landing { --globe-x: 61vw; --globe-y: 78svh; --globe-opacity: .82; }
+  .landing[data-scene="1"], .landing[data-scene="2"] { --globe-x: 75vw; --globe-y: 33svh; --globe-opacity: .24; }
+  .landing[data-scene="3"] { --globe-opacity: .27; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.landing) { scroll-behavior: smooth; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .globe { transition: none; }
+}
