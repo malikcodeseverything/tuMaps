@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 _GRAPH_RETRY_INTERVAL_S = 60
 _GRAPH_RETRY_MAX_ATTEMPTS = 10
 _REFRESH_FIRST_CHECK_DELAY_S = 30  # let startup finish before the first data check
+_REFRESH_RETRY_S = 15 * 60          # after a failed refresh, try again this soon
 
 _startup_seconds = 0.0
 
@@ -58,39 +59,47 @@ async def _retry_graph_load() -> None:
     logger.error("Giving up on road graph load after %d attempts", _GRAPH_RETRY_MAX_ATTEMPTS)
 
 
-async def refresh_incidents_if_stale() -> bool:
+async def refresh_incidents_if_stale() -> str:
     """Re-ingest incidents when the newest stored one is too old.
 
-    Returns True if new data was stored. On success the risk scores and the
-    heatmap are recomputed and stored, so later startups just load them.
-    While the service sleeps nothing runs, so this happens on the first wake
-    after the data goes stale.
+    Returns "current" (nothing to do), "refreshed" (new data stored) or
+    "failed" (data is stale but the download did not succeed). On success the
+    risk scores and the heatmap are recomputed and stored, so later startups
+    just load them. While the service sleeps nothing runs, so this happens on
+    the first wake after the data goes stale.
     """
     latest = await latest_incident_date()
     age_days = (date.today() - latest).days if latest else None
     if age_days is not None and age_days <= settings.incident_max_age_days:
         logger.info("Incident data is current (newest incident %s)", latest)
-        return False
+        return "current"
 
     logger.info("Incident data is stale (newest incident %s); refreshing", latest)
     stored = await run_ingest(years_back=settings.incident_years_back)
     if not stored:
-        return False
+        return "failed"
 
     await load_or_compute_risk(force=True)  # no-op if the graph is not loaded yet
     await heatmap.rebuild()
     logger.info("Incident refresh complete: %d incidents, risk and heatmap updated", stored)
-    return True
+    return "refreshed"
 
 
 async def _incident_refresh_loop(first_delay_s: float) -> None:
     await asyncio.sleep(first_delay_s)
     while True:
         try:
-            await refresh_incidents_if_stale()
+            status = await refresh_incidents_if_stale()
         except Exception:
-            logger.exception("Incident refresh failed; will retry next cycle")
-        await asyncio.sleep(settings.incident_refresh_hours * 3600)
+            logger.exception("Incident refresh crashed")
+            status = "failed"
+        if status == "failed":
+            # Don't leave stale (or, on a fresh database, empty) data in place
+            # for a whole day because the source was briefly unavailable.
+            logger.warning("Incident refresh failed; retrying in %d min", _REFRESH_RETRY_S // 60)
+            await asyncio.sleep(_REFRESH_RETRY_S)
+        else:
+            await asyncio.sleep(settings.incident_refresh_hours * 3600)
 
 
 @asynccontextmanager

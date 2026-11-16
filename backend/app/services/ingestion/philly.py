@@ -10,6 +10,7 @@ risk search radius) and pages through every matching row. An earlier version
 used a larger box with an unordered LIMIT 50000, which silently kept an
 arbitrary ~41% of the matching incidents.
 """
+import asyncio
 import logging
 import math
 from datetime import date, datetime, timedelta
@@ -37,6 +38,8 @@ BOUNDS = {
 
 PAGE_SIZE = 20_000
 MAX_ROWS = 300_000  # safety cap; the graph area has ~70k incidents over 3 years
+# Waits between attempts when Carto is busy (4 attempts per page in total).
+RETRY_DELAYS_S = (5, 10, 20)
 
 
 def _parse_ucr_code(ucr_raw) -> int:
@@ -86,6 +89,46 @@ def _parse_row(row: dict) -> dict:
     }
 
 
+def _is_transient(exc: Exception) -> bool:
+    """Errors worth retrying: the server was busy or the network hiccupped.
+
+    Carto answers HTTP 400 {"error":["query_wait_timeout"]} when its query queue
+    is full, so a 400 counts as transient only when the body says timeout.
+    """
+    if isinstance(exc, httpx.TransportError):  # connect/read timeouts, resets
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 429 or status >= 500:
+            return True
+        return status == 400 and "timeout" in exc.response.text.lower()
+    return False
+
+
+async def _fetch_page(client: httpx.AsyncClient, query: str) -> list:
+    """GET one page, retrying transient failures with backoff."""
+    for attempt, wait_s in enumerate(RETRY_DELAYS_S + (None,), start=1):
+        try:
+            resp = await client.get(_CARTO_URL, params={"q": query})
+            resp.raise_for_status()
+            return resp.json().get("rows", [])
+        except Exception as exc:
+            if wait_s is None or not _is_transient(exc):
+                raise
+            logger.warning(
+                "Philly Open Data: transient error on attempt %d (%s); retrying in %ds",
+                attempt, _describe(exc), wait_s,
+            )
+            await asyncio.sleep(wait_s)
+    raise AssertionError("unreachable")
+
+
+def _describe(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code} {exc.response.text[:80]}"
+    return type(exc).__name__
+
+
 async def fetch_philly_incidents(years_back: int = 3) -> List[dict]:
     """Return normalised incident dicts ready for deduplication and DB insert.
 
@@ -104,11 +147,7 @@ async def fetch_philly_incidents(years_back: int = 3) -> List[dict]:
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             while len(incidents) + rejected < MAX_ROWS:
-                resp = await client.get(
-                    _CARTO_URL, params={"q": _build_query(since, after, PAGE_SIZE)}
-                )
-                resp.raise_for_status()
-                rows = resp.json().get("rows", [])
+                rows = await _fetch_page(client, _build_query(since, after, PAGE_SIZE))
 
                 for row in rows:
                     try:
@@ -124,10 +163,15 @@ async def fetch_philly_incidents(years_back: int = 3) -> List[dict]:
             else:
                 logger.warning("Philly Open Data: hit MAX_ROWS=%d safety cap", MAX_ROWS)
     except httpx.HTTPStatusError as exc:
+        hint = (
+            "the server stayed busy after retries"
+            if _is_transient(exc)
+            else "verify field names against live schema"
+        )
         logger.error(
-            "Philly Open Data API returned HTTP %d; verify field names against live schema. "
-            "Response body: %s",
+            "Philly Open Data API returned HTTP %d (%s). Response body: %s",
             exc.response.status_code,
+            hint,
             exc.response.text[:500],
         )
         return []

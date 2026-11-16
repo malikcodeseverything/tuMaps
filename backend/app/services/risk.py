@@ -36,6 +36,14 @@ SEVERITY = {
 _DEFAULT_SEVERITY = 0.2
 _ARTIFACT = "edge_risk"
 
+# True once edges carry scores derived from real incident data (not the
+# all-zero placeholder used while the database is still empty).
+_scores_ready = False
+
+
+def risk_scores_ready() -> bool:
+    return _scores_ready
+
 
 def _recency(d: date) -> float:
     days = max((date.today() - d).days, 0)
@@ -107,6 +115,7 @@ async def load_or_compute_risk(force: bool = False) -> str:
 
     Returns how the scores were obtained: "loaded", "computed", "empty" or "no-graph".
     """
+    global _scores_ready
     G = get_graph()
     if G is None:
         logger.warning("Graph not loaded, skipping risk computation")
@@ -121,17 +130,20 @@ async def load_or_compute_risk(force: bool = False) -> str:
         ):
             _apply(G, stored["risk"])
             logger.info("Loaded precomputed risk scores for %d edges", G.number_of_edges())
+            _scores_ready = True
             return "loaded"
 
     risks = await _compute_risks(G)
     if risks is None:
         logger.info("No incidents in DB, all edge risks set to 0")
         _apply(G, [0.0] * G.number_of_edges())
+        _scores_ready = False
         return "empty"
 
     _apply(G, risks)
     await save_artifact(_ARTIFACT, {"graph_id": get_graph_id(), "risk": risks})
     logger.info("Risk computation complete and stored")
+    _scores_ready = True
     return "computed"
 
 
