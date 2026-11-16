@@ -2,16 +2,16 @@ import type {
   RoutesResponse,
   IncidentCollection,
   RiskSegmentCollection,
-  GeocodeSuggestion,
+  Place,
   HealthStatus,
 } from "@/types";
+import { COVERAGE_BBOX, inCoverage } from "./coverage";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
-// Temple campus centre — biases geocoding results toward campus area
+// Temple campus centre: biases geocoding results toward campus
 const PROXIMITY = "-75.1557,39.9812";
-const BBOX = "-75.25,39.90,-75.05,40.05";
 
 const UNREACHABLE_MESSAGE = "Can't reach the TuMaps server. Please try again in a moment.";
 
@@ -132,22 +132,42 @@ export async function reverseGeocode([lng, lat]: [number, number]): Promise<stri
   }
 }
 
-export async function geocode(query: string): Promise<GeocodeSuggestion[]> {
+/**
+ * Street addresses and places from Mapbox, limited to the routable area.
+ * Returns [] on any failure so search never breaks; an aborted request
+ * (the user kept typing) rejects with an AbortError, which callers ignore.
+ */
+export async function geocode(query: string, signal?: AbortSignal): Promise<Place[]> {
   if (!query.trim() || !MAPBOX_TOKEN) return [];
   const url = new URL(
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`,
   );
   url.searchParams.set("access_token", MAPBOX_TOKEN);
   url.searchParams.set("proximity", PROXIMITY);
-  url.searchParams.set("bbox", BBOX);
+  url.searchParams.set("bbox", COVERAGE_BBOX);
+  url.searchParams.set("types", "poi,address");
   url.searchParams.set("limit", "5");
 
-  const res = await fetch(url.toString());
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.features || []).map((f: { id: string; place_name: string; center: [number, number] }) => ({
-    id: f.id,
-    place_name: f.place_name,
-    center: f.center,
-  }));
+  let data: { features?: Array<MapboxFeature & { id: string; center: [number, number] }> };
+  try {
+    const res = await fetch(url.toString(), { signal });
+    if (!res.ok) return [];
+    data = await res.json();
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    return [];
+  }
+
+  return (data.features || [])
+    .filter((f) => inCoverage(f.center))
+    .map((f) => {
+      const name = shortPlaceName(f);
+      // "Charles Library, 1900 N 13th St, Philadelphia, ..." -> "1900 N 13th St, Philadelphia, ..."
+      const detail = f.place_name
+        .split(", ")
+        .slice(1)
+        .filter((part) => part !== "United States")
+        .join(", ");
+      return { id: f.id, name, detail, center: f.center, source: "mapbox" as const };
+    });
 }

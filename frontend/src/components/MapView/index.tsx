@@ -8,6 +8,7 @@ import type {
   RiskSegmentCollection,
   RouteMode,
   SelectingMode,
+  Place,
 } from "@/types";
 
 const TEMPLE_CENTER: [number, number] = [-75.1557, 39.9812];
@@ -16,6 +17,8 @@ const ROUTE_COLORS: Record<RouteMode, string> = {
   fastest: "#3b82f6",
   balanced: "#a855f7",
 };
+
+const SEARCH_PIN_COLOR = "#a41e35"; // Temple cherry
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -27,7 +30,13 @@ interface Props {
   origin: [number, number] | null;
   destination: [number, number] | null;
   selectingMode: SelectingMode;
+  searchedPlace: Place | null;
   onMapClick: (lngLat: [number, number]) => void;
+}
+
+/** Pan to a point only if it's off screen, so picking a place never loses it. */
+function revealPoint(map: mapboxgl.Map, pt: [number, number]) {
+  if (!map.getBounds()?.contains(pt)) map.easeTo({ center: pt, duration: 600 });
 }
 
 function initSources(map: mapboxgl.Map) {
@@ -124,6 +133,7 @@ export default function MapView({
   origin,
   destination,
   selectingMode,
+  searchedPlace,
   onMapClick,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,6 +143,7 @@ export default function MapView({
   const [mapReady, setMapReady] = useState(false);
   const originMarker = useRef<mapboxgl.Marker | null>(null);
   const destMarker = useRef<mapboxgl.Marker | null>(null);
+  const searchMarker = useRef<mapboxgl.Marker | null>(null);
   const onClickRef = useRef(onMapClick);
 
   useEffect(() => { onClickRef.current = onMapClick; }, [onMapClick]);
@@ -189,7 +200,10 @@ export default function MapView({
       originMarker.current = new mapboxgl.Marker({ color: "#22c55e" })
         .setLngLat(origin)
         .addTo(mapRef.current);
+      if (!destination) revealPoint(mapRef.current, origin);
     }
+    // Only a new origin should pan the map, not a destination change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin]);
 
   // Destination marker
@@ -200,8 +214,22 @@ export default function MapView({
       destMarker.current = new mapboxgl.Marker({ color: "#ef4444" })
         .setLngLat(destination)
         .addTo(mapRef.current);
+      if (!origin) revealPoint(mapRef.current, destination);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destination]);
+
+  // Place found with the search bar: drop a pin and fly to it
+  useEffect(() => {
+    searchMarker.current?.remove();
+    searchMarker.current = null;
+    const map = mapRef.current;
+    if (!searchedPlace || !map) return;
+    searchMarker.current = new mapboxgl.Marker({ color: SEARCH_PIN_COLOR })
+      .setLngLat(searchedPlace.center)
+      .addTo(map);
+    map.flyTo({ center: searchedPlace.center, zoom: Math.max(map.getZoom(), 17), duration: 900 });
+  }, [searchedPlace]);
 
   // Incident heatmap
   useEffect(() => {

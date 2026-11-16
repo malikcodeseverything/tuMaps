@@ -1,27 +1,22 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MapPin, X, Crosshair } from "lucide-react";
-import { geocode, reverseGeocode } from "@/services/api";
-import type { GeocodeSuggestion } from "@/types";
+import { X, Crosshair } from "lucide-react";
+import { reverseGeocode } from "@/services/api";
+import { usePlaceCombobox } from "@/hooks/usePlaceSearch";
+import SuggestionList from "@/components/Search/SuggestionList";
+import type { Place } from "@/types";
 
 interface Props {
   label: string;
   dotColor: string;
   placeholder: string;
   value: [number, number] | null;
+  /** Name to show for `value` when it came from elsewhere (the map search bar). */
+  placeName?: string | null;
   isPickingFromMap: boolean;
   onSelect: (pt: [number, number]) => void;
   onPickFromMap: () => void;
   onClear: () => void;
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
 }
 
 export default function LocationSearch({
@@ -29,20 +24,31 @@ export default function LocationSearch({
   dotColor,
   placeholder,
   value,
+  placeName,
   isPickingFromMap,
   onSelect,
   onPickFromMap,
   onClear,
 }: Props) {
-  const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<GeocodeSuggestion[]>([]);
   const [selected, setSelected] = useState<string>("");
-  const [open, setOpen] = useState(false);
-  const debouncedQuery = useDebounce(query, 300);
+  // Typing a new search over an existing selection; blur without a pick keeps the old one.
+  const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Which point the current label describes, so a new map pick always
   // replaces the label (previously a second pick kept the old text).
   const labelledPoint = useRef<string>("");
+
+  const handlePick = useCallback(
+    (place: Place) => {
+      labelledPoint.current = `${place.center[0]},${place.center[1]}`;
+      setSelected(place.name);
+      setEditing(false);
+      onSelect(place.center);
+    },
+    [onSelect],
+  );
+
+  const box = usePlaceCombobox(handlePick);
 
   useEffect(() => {
     if (!value) {
@@ -54,6 +60,11 @@ export default function LocationSearch({
     if (labelledPoint.current === key) return; // label came from a search suggestion
     labelledPoint.current = key;
 
+    if (placeName) {
+      setSelected(placeName);
+      return;
+    }
+
     // Show coordinates immediately, then swap in the nearest place name.
     setSelected(`${value[1].toFixed(5)}, ${value[0].toFixed(5)}`);
     let cancelled = false;
@@ -63,98 +74,88 @@ export default function LocationSearch({
     return () => {
       cancelled = true;
     };
-  }, [value]);
+  }, [value, placeName]);
 
-  useEffect(() => {
-    if (!debouncedQuery || debouncedQuery === selected) {
-      setSuggestions([]);
-      return;
-    }
-    geocode(debouncedQuery).then((results) => {
-      setSuggestions(results);
-      setOpen(results.length > 0);
-    });
-  }, [debouncedQuery]);
+  const startEditing = () => {
+    setEditing(true);
+    box.setQuery("");
+    // Focus once the input has rendered.
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
 
-  const handleSelect = useCallback(
-    (s: GeocodeSuggestion) => {
-      labelledPoint.current = `${s.center[0]},${s.center[1]}`;
-      setSelected(s.place_name);
-      setQuery("");
-      setSuggestions([]);
-      setOpen(false);
-      onSelect(s.center);
-    },
-    [onSelect],
-  );
-
-  const handleClear = useCallback(() => {
+  const handleClear = () => {
     labelledPoint.current = "";
     setSelected("");
-    setQuery("");
-    setSuggestions([]);
-    setOpen(false);
+    setEditing(false);
+    box.setQuery("");
     onClear();
-    inputRef.current?.focus();
-  }, [onClear]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const showInput = !selected || editing;
 
   return (
     <div className="relative">
       <div
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm border transition-colors ${
+        className={`flex items-center gap-2 rounded-lg px-3 py-2 border transition-colors ${
           isPickingFromMap
             ? "bg-blue-950/60 border-blue-500/60"
-            : "bg-gray-800/80 border-gray-700/50 focus-within:border-gray-500"
+            : "bg-gray-800/80 border-gray-700/50 focus-within:border-gray-400"
         }`}
       >
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
-        <span className="text-gray-400 w-6 flex-shrink-0 text-xs">{label}</span>
+        <span className="text-gray-400 w-8 flex-shrink-0 text-xs">{label}</span>
 
-        {selected ? (
-          <span className="flex-1 text-white truncate text-xs">{selected}</span>
-        ) : (
+        {showInput ? (
           <input
             ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => suggestions.length > 0 && setOpen(true)}
+            {...box.inputProps}
+            onBlur={() => {
+              box.inputProps.onBlur();
+              setEditing(false);
+            }}
+            aria-label={`${label} location`}
             placeholder={isPickingFromMap ? "Click on the map…" : placeholder}
-            className="flex-1 bg-transparent outline-none placeholder-gray-500 text-white text-xs min-w-0"
+            // 16px on phones stops iOS from zooming the page when the box is focused.
+            className="flex-1 bg-transparent outline-none placeholder-gray-500 text-white text-base md:text-sm min-w-0"
             disabled={isPickingFromMap}
           />
+        ) : (
+          <button
+            type="button"
+            onClick={startEditing}
+            title="Search for a different place"
+            className="flex-1 min-w-0 text-left text-white truncate text-base md:text-sm hover:text-gray-200"
+          >
+            {selected}
+          </button>
         )}
 
         <button
+          type="button"
           onClick={onPickFromMap}
           title={isPickingFromMap ? "Cancel map selection" : "Pick from map"}
+          aria-label={isPickingFromMap ? "Cancel map selection" : "Pick from map"}
           className={`p-0.5 rounded transition-colors ${
             isPickingFromMap ? "text-blue-400" : "text-gray-500 hover:text-gray-300"
           }`}
         >
-          <Crosshair size={13} />
+          <Crosshair size={14} />
         </button>
 
-        {(selected || query) && (
-          <button onClick={handleClear} className="text-gray-500 hover:text-gray-300 transition-colors">
-            <X size={13} />
+        {(selected || box.query) && (
+          <button
+            type="button"
+            onClick={handleClear}
+            aria-label={`Clear ${label.toLowerCase()} location`}
+            className="text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <X size={14} />
           </button>
         )}
       </div>
 
-      {open && suggestions.length > 0 && (
-        <ul className="absolute top-full mt-1 left-0 right-0 z-50 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
-          {suggestions.map((s) => (
-            <li
-              key={s.id}
-              onMouseDown={() => handleSelect(s)}
-              className="flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-gray-700 text-xs"
-            >
-              <MapPin size={11} className="text-gray-400 flex-shrink-0 mt-0.5" />
-              <span className="text-gray-200 leading-tight">{s.place_name}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {showInput && <SuggestionList box={box} className="top-full mt-1 left-0 right-0" />}
     </div>
   );
 }

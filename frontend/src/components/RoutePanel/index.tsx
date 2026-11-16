@@ -19,6 +19,8 @@ interface Props {
   dataThrough: string | null;
   origin: [number, number] | null;
   destination: [number, number] | null;
+  originName: string | null;
+  destinationName: string | null;
   selectedMode: RouteMode;
   routes: RoutesResponse | null;
   isLoading: boolean;
@@ -36,6 +38,8 @@ export default function RoutePanel({
   dataThrough,
   origin,
   destination,
+  originName,
+  destinationName,
   selectedMode,
   routes,
   isLoading,
@@ -49,7 +53,8 @@ export default function RoutePanel({
   onSelectingModeChange,
 }: Props) {
   return (
-    <div className="absolute top-4 left-4 z-10 w-80 rounded-2xl bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700/50 overflow-hidden">
+    // Below lg the map search bar sits above this panel; from lg it sits beside it.
+    <div className="absolute top-[4.5rem] lg:top-4 left-4 z-10 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700/50">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-700/50">
         <h1 className="text-sm font-semibold text-white tracking-wide">
@@ -76,6 +81,7 @@ export default function RoutePanel({
           dotColor="bg-green-500"
           placeholder="Start location…"
           value={origin}
+          placeName={originName}
           isPickingFromMap={selectingMode === "origin"}
           onSelect={onOriginChange}
           onPickFromMap={() =>
@@ -88,6 +94,7 @@ export default function RoutePanel({
           dotColor="bg-red-500"
           placeholder="Destination…"
           value={destination}
+          placeName={destinationName}
           isPickingFromMap={selectingMode === "destination"}
           onSelect={onDestinationChange}
           onPickFromMap={() =>

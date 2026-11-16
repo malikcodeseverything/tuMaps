@@ -56,8 +56,12 @@ export interface HealthStatus {
   startup_seconds: number;
 }
 
-export interface GeocodeSuggestion {
+/** A searchable place: a built-in campus location or a Mapbox address result. */
+export interface Place {
   id: string;
-  place_name: string;
+  name: string;   // "Charles Library", "1801 N Broad St"
+  detail: string; // "Library", "Philadelphia, Pennsylvania 19122"
   center: [number, number]; // [lng, lat]
+  source: "campus" | "mapbox";
+  aliases?: string[];
 }
