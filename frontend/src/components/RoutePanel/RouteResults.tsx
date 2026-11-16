@@ -19,6 +19,17 @@ function fmt_time(s: number): string {
   return min < 1 ? "< 1 min" : `${min} min`;
 }
 
+// True when every mode returned the same path (common when the direct route
+// is already low risk, so no detour is worth its extra distance).
+function allModesAgree(routes: RoutesResponse | null): boolean {
+  const rs = [routes?.safest, routes?.fastest, routes?.balanced];
+  if (rs.some((r) => !r)) return false;
+  const [a, b, c] = rs as NonNullable<(typeof rs)[number]>[];
+  const sameDist = Math.abs(a.distance_m - b.distance_m) < 1 && Math.abs(a.distance_m - c.distance_m) < 1;
+  const sameRisk = a.risk_score === b.risk_score && a.risk_score === c.risk_score;
+  return sameDist && sameRisk;
+}
+
 function RiskBar({ score }: { score: number }) {
   const pct = Math.round(score * 100);
   const color =
@@ -72,6 +83,11 @@ export default function RouteResults({ routes, selectedMode, isLoading, error, h
 
   return (
     <div className="px-4 py-3 space-y-3">
+      {allModesAgree(routes) && (
+        <p className="text-xs text-gray-300 bg-gray-800/60 rounded-lg px-3 py-2 leading-relaxed">
+          All three modes take the same path here. This route is already the lowest risk option.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-gray-800/60 rounded-lg px-3 py-2">
           <p className="text-xs text-gray-400">Distance</p>

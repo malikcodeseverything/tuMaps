@@ -7,11 +7,16 @@ Two incidents are considered duplicates when:
 
 The Philly Open Data record is kept as the canonical record since it has
 verified coordinates; the Temple PD record is discarded.
+
+Candidates are only compared against kept records from *other* sources,
+bucketed by date. With a single source this is O(n); the previous version
+scanned every kept record for every candidate, which is O(n^2) and took
+minutes for ~70k Philly rows even though no comparison could ever match.
 """
 import math
 import logging
-from datetime import date
-from typing import List
+from collections import defaultdict
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -33,26 +38,31 @@ def merge_and_deduplicate(*source_lists: List[dict]) -> List[dict]:
     all_incidents = [i for src in source_lists for i in src]
 
     kept: List[dict] = []
+    # source -> date ordinal -> kept incidents from that source on that day
+    by_source_day: Dict[str, Dict[int, List[dict]]] = defaultdict(lambda: defaultdict(list))
     dropped = 0
 
     for candidate in all_incidents:
+        day = candidate["incident_date"].toordinal()
         is_dup = False
-        for existing in kept:
-            if existing["source"] == candidate["source"]:
+        for source, days in by_source_day.items():
+            if source == candidate["source"]:
                 continue
-            date_diff = abs((candidate["incident_date"] - existing["incident_date"]).days)
-            if date_diff > DATE_THRESHOLD_DAYS:
-                continue
-            if _dist_m(candidate, existing) <= SPATIAL_THRESHOLD_M:
-                is_dup = True
+            for d in range(day - DATE_THRESHOLD_DAYS, day + DATE_THRESHOLD_DAYS + 1):
+                if any(_dist_m(candidate, e) <= SPATIAL_THRESHOLD_M for e in days.get(d, ())):
+                    is_dup = True
+                    break
+            if is_dup:
                 break
-        if not is_dup:
-            kept.append(candidate)
-        else:
+
+        if is_dup:
             dropped += 1
+        else:
+            kept.append(candidate)
+            by_source_day[candidate["source"]][day].append(candidate)
 
     logger.info(
-        "Merger: %d total → %d kept, %d duplicates removed",
+        "Merger: %d total -> %d kept, %d duplicates removed",
         len(all_incidents), len(kept), dropped,
     )
     return kept

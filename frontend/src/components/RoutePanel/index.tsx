@@ -4,7 +4,18 @@ import LocationSearch from "./LocationSearch";
 import RouteTypeToggle from "./RouteTypeToggle";
 import RouteResults from "./RouteResults";
 
+// "2026-11-14" -> "Nov 14, 2026" (parsed as a local date to avoid a UTC off-by-one)
+function formatDataDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 interface Props {
+  dataThrough: string | null;
   origin: [number, number] | null;
   destination: [number, number] | null;
   selectedMode: RouteMode;
@@ -19,6 +30,7 @@ interface Props {
 }
 
 export default function RoutePanel({
+  dataThrough,
   origin,
   destination,
   selectedMode,
@@ -36,7 +48,10 @@ export default function RoutePanel({
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-700/50">
         <h1 className="text-sm font-semibold text-white tracking-wide">Temple Safety Routes</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Historical risk · Philadelphia data</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Historical risk · Philadelphia data
+          {dataThrough && <> through {formatDataDate(dataThrough)}</>}
+        </p>
       </div>
 
       {/* Location inputs */}

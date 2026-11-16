@@ -59,13 +59,36 @@ def get_graph():
     return _graph
 
 
+# Incremented whenever edge risk scores change, so cached API payloads that
+# depend on them know to rebuild.
+_risk_version = 0
+
+
+def bump_risk_version() -> None:
+    global _risk_version
+    _risk_version += 1
+
+
+def get_risk_version() -> int:
+    return _risk_version
+
+
 def nearest_node(lng: float, lat: float) -> int:
     # osmnx convention: X = longitude, Y = latitude
     return ox.nearest_nodes(_graph, X=lng, Y=lat)
 
 
+# 5 decimal places is ~1.1 m at this latitude: invisible on the map, and it
+# roughly halves the JSON size compared with full float precision.
+_COORD_DP = 5
+
+
 def graph_edges_as_geojson() -> dict:
-    """Return all edges as a GeoJSON FeatureCollection for the risk layer."""
+    """Return all edges as a GeoJSON FeatureCollection for the risk layer.
+
+    Only the properties the map uses are included (risk), with rounded
+    coordinates, to keep the payload small.
+    """
     G = _graph
     if G is None:
         return {"type": "FeatureCollection", "features": []}
@@ -79,23 +102,19 @@ def graph_edges_as_geojson() -> dict:
             continue
         seen.add(pair)
 
-        risk = data.get("risk", 0.0)
-        name = data.get("name", "")
-        if isinstance(name, list):
-            name = name[0]
-
         if "geometry" in data:
-            coords = list(data["geometry"].coords)
+            raw = data["geometry"].coords
         else:
-            coords = [
+            raw = [
                 (G.nodes[u]["x"], G.nodes[u]["y"]),
                 (G.nodes[v]["x"], G.nodes[v]["y"]),
             ]
+        coords = [[round(x, _COORD_DP), round(y, _COORD_DP)] for x, y in raw]
 
         features.append({
             "type": "Feature",
             "geometry": {"type": "LineString", "coordinates": coords},
-            "properties": {"risk": round(risk, 4), "name": name or ""},
+            "properties": {"risk": round(data.get("risk", 0.0), 3)},
         })
 
     return {"type": "FeatureCollection", "features": features}

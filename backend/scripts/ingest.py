@@ -3,8 +3,9 @@
 Usage (from backend/ directory):
     python -m scripts.ingest
 
-Run this once after deployment, then periodically (e.g. weekly) to refresh
-incident data from Philly Open Data and Temple PD.
+The deployed API also refreshes incident data on its own (see
+INCIDENT_REFRESH_HOURS in app/config.py), so this is mainly for local
+development or forcing an immediate refresh.
 """
 import asyncio
 import sys
@@ -14,12 +15,9 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.chdir(os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import delete
-from app.database import create_tables, async_session_factory
-from app.models.incident import Incident
-from app.services.ingestion.philly import fetch_philly_incidents
-from app.services.ingestion.temple import fetch_temple_incidents
-from app.services.ingestion.merger import merge_and_deduplicate
+from app.config import settings
+from app.database import create_tables, wait_for_db
+from app.services.ingestion.pipeline import run_ingest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,41 +28,10 @@ logger = logging.getLogger("ingest")
 
 
 async def run() -> None:
+    await wait_for_db()
     await create_tables()
-
-    logger.info("=== Stage 1: Fetch Philadelphia Open Data ===")
-    philly = await fetch_philly_incidents()
-    logger.info("Philly: %d records ready for merge", len(philly))
-
-    logger.info("=== Stage 2: Fetch Temple PD log ===")
-    temple = await fetch_temple_incidents()
-    logger.info("Temple PD: %d records ready for merge", len(temple))
-
-    logger.info("=== Stage 3: Merge and deduplicate ===")
-    merged = merge_and_deduplicate(philly, temple)
-    logger.info("Merged total: %d unique incidents", len(merged))
-
-    logger.info("=== Stage 4: Write to database ===")
-    inserted = 0
-    async with async_session_factory() as session:
-        await session.execute(delete(Incident))
-        session.add_all([
-            Incident(
-                source=d["source"],
-                external_id=d["external_id"],
-                lat=d["lat"],
-                lng=d["lng"],
-                incident_date=d["incident_date"],
-                ucr_code=d.get("ucr_code"),
-                crime_type=d.get("crime_type", ""),
-                description=d.get("description", ""),
-            )
-            for d in merged
-        ])
-        await session.commit()
-        inserted = len(merged)
-
-    logger.info("=== Done: %d incidents inserted ===", inserted)
+    stored = await run_ingest(years_back=settings.incident_years_back)
+    logger.info("=== Done: %d incidents stored ===", stored)
 
 
 if __name__ == "__main__":

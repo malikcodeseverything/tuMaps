@@ -48,6 +48,38 @@ export async function fetchRiskSegments(): Promise<RiskSegmentCollection> {
   return res.json();
 }
 
+interface MapboxFeature {
+  text?: string;
+  address?: string;
+  place_type?: string[];
+  place_name: string;
+}
+
+// "Charles Library" for a place, "1801 N Broad St" for an address.
+function shortPlaceName(f: MapboxFeature): string {
+  if (f.place_type?.includes("address") && f.address && f.text) return `${f.address} ${f.text}`;
+  return f.text || f.place_name.split(",")[0];
+}
+
+/** Nearest place or street address for a point picked on the map. */
+export async function reverseGeocode([lng, lat]: [number, number]): Promise<string | null> {
+  if (!MAPBOX_TOKEN) return null;
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng.toFixed(6)},${lat.toFixed(6)}.json`,
+  );
+  url.searchParams.set("access_token", MAPBOX_TOKEN);
+  url.searchParams.set("types", "poi,address");
+  try {
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    const data = await res.json();
+    const feature: MapboxFeature | undefined = data.features?.[0];
+    return feature ? shortPlaceName(feature) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function geocode(query: string): Promise<GeocodeSuggestion[]> {
   if (!query.trim() || !MAPBOX_TOKEN) return [];
   const url = new URL(

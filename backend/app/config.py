@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # e.g. https://tu-maps-git-feature-x.vercel.app
     cors_origin_regex: Optional[str] = r"https://tu-maps(-[a-z0-9-]+)?\.vercel\.app"
 
+    # Incident data refresh. The API re-ingests Philly Open Data in the
+    # background when the newest stored incident is older than
+    # incident_max_age_days, checking every incident_refresh_hours.
+    # Set incident_refresh_hours=0 to disable (e.g. local dev).
+    incident_refresh_hours: int = 24
+    incident_max_age_days: int = 2
+    incident_years_back: int = 3
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

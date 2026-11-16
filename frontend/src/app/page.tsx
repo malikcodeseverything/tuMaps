@@ -13,7 +13,7 @@ export default function Home() {
   const [selectedMode, setSelectedMode] = useState<RouteMode>("balanced");
   const [selectingMode, setSelectingMode] = useState<SelectingMode>(null);
 
-  const { routes, incidents, riskSegments, isLoading, error } = useRoute(origin, destination);
+  const { routes, incidents, riskSegments, dataThrough, isLoading, error } = useRoute(origin, destination);
 
   const handleMapClick = useCallback(
     (lngLat: [number, number]) => {
@@ -41,6 +41,7 @@ export default function Home() {
         onMapClick={handleMapClick}
       />
       <RoutePanel
+        dataThrough={dataThrough}
         origin={origin}
         destination={destination}
         selectedMode={selectedMode}

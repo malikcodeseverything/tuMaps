@@ -1,15 +1,17 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
+from datetime import date
+from typing import List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings, log_runtime_config
-from .database import create_tables, async_session_factory
+from .database import create_tables, async_session_factory, wait_for_db
 from .routers import routes, incidents, segments
 from .services import graph as graph_service
+from .services.ingestion.pipeline import latest_incident_date, run_ingest
 from .services.risk import compute_and_apply
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _GRAPH_RETRY_INTERVAL_S = 60
 _GRAPH_RETRY_MAX_ATTEMPTS = 10
+_REFRESH_FIRST_CHECK_DELAY_S = 30  # let startup finish before the first data check
 
 
 async def _load_graph_and_risks() -> bool:
@@ -52,12 +55,47 @@ async def _retry_graph_load() -> None:
     logger.error("Giving up on road graph load after %d attempts", _GRAPH_RETRY_MAX_ATTEMPTS)
 
 
+async def refresh_incidents_if_stale() -> bool:
+    """Re-ingest incidents when the newest stored one is too old.
+
+    Returns True if new data was stored. Acts as a built-in daily job, since
+    scheduled cron services are not available on every hosting plan.
+    """
+    latest = await latest_incident_date()
+    age_days = (date.today() - latest).days if latest else None
+    if age_days is not None and age_days <= settings.incident_max_age_days:
+        logger.info("Incident data is current (newest incident %s)", latest)
+        return False
+
+    logger.info("Incident data is stale (newest incident %s); refreshing", latest)
+    stored = await run_ingest(years_back=settings.incident_years_back)
+    if not stored:
+        return False
+
+    incidents.invalidate_cache()
+    async with async_session_factory() as session:
+        await compute_and_apply(session)  # no-op if the graph is not loaded yet
+    logger.info("Incident refresh complete: %d incidents, risk scores updated", stored)
+    return True
+
+
+async def _incident_refresh_loop() -> None:
+    await asyncio.sleep(_REFRESH_FIRST_CHECK_DELAY_S)
+    while True:
+        try:
+            await refresh_incidents_if_stale()
+        except Exception:
+            logger.exception("Incident refresh failed; will retry next cycle")
+        await asyncio.sleep(settings.incident_refresh_hours * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log_runtime_config()
+    await wait_for_db()
     await create_tables()
 
-    retry_task: Optional[asyncio.Task] = None
+    background: List[asyncio.Task] = []
     if await _load_graph_and_risks():
         logger.info("Startup complete, ready to serve requests")
     else:
@@ -66,12 +104,16 @@ async def lifespan(app: FastAPI):
             "Retrying every %ds in the background.",
             _GRAPH_RETRY_INTERVAL_S,
         )
-        retry_task = asyncio.create_task(_retry_graph_load())
+        background.append(asyncio.create_task(_retry_graph_load()))
+
+    if settings.incident_refresh_hours > 0:
+        background.append(asyncio.create_task(_incident_refresh_loop()))
 
     yield
 
-    if retry_task and not retry_task.done():
-        retry_task.cancel()
+    for task in background:
+        if not task.done():
+            task.cancel()
     logger.info("Shutting down")
 
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { MapPin, X, Crosshair } from "lucide-react";
-import { geocode } from "@/services/api";
+import { geocode, reverseGeocode } from "@/services/api";
 import type { GeocodeSuggestion } from "@/types";
 
 interface Props {
@@ -40,15 +40,29 @@ export default function LocationSearch({
   const [open, setOpen] = useState(false);
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Which point the current label describes, so a new map pick always
+  // replaces the label (previously a second pick kept the old text).
+  const labelledPoint = useRef<string>("");
 
   useEffect(() => {
     if (!value) {
       setSelected("");
+      labelledPoint.current = "";
       return;
     }
-    if (!selected) {
-      setSelected(`${value[1].toFixed(5)}, ${value[0].toFixed(5)}`);
-    }
+    const key = `${value[0]},${value[1]}`;
+    if (labelledPoint.current === key) return; // label came from a search suggestion
+    labelledPoint.current = key;
+
+    // Show coordinates immediately, then swap in the nearest place name.
+    setSelected(`${value[1].toFixed(5)}, ${value[0].toFixed(5)}`);
+    let cancelled = false;
+    reverseGeocode(value).then((name) => {
+      if (!cancelled && name && labelledPoint.current === key) setSelected(name);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [value]);
 
   useEffect(() => {
@@ -64,6 +78,7 @@ export default function LocationSearch({
 
   const handleSelect = useCallback(
     (s: GeocodeSuggestion) => {
+      labelledPoint.current = `${s.center[0]},${s.center[1]}`;
       setSelected(s.place_name);
       setQuery("");
       setSuggestions([]);
@@ -74,6 +89,7 @@ export default function LocationSearch({
   );
 
   const handleClear = useCallback(() => {
+    labelledPoint.current = "";
     setSelected("");
     setQuery("");
     setSuggestions([]);

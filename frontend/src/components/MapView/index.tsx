@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type {
@@ -63,14 +63,16 @@ function initLayers(map: mapboxgl.Map) {
     },
   });
 
-  // Incident heatmap
+  // Incident heatmap. Each point's weight is the summed severity of all
+  // incidents at that location, which renders the same as one point per incident.
+  // Intensity is tuned for the full dataset of the routed area (~70k incidents).
   map.addLayer({
     id: "incidents-heatmap",
     type: "heatmap",
     source: "incidents",
     paint: {
-      "heatmap-weight": ["coalesce", ["get", "severity"], 0.2],
-      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 1.5],
+      "heatmap-weight": ["coalesce", ["get", "weight"], 0.2],
+      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 12, 0.2, 16, 0.6],
       "heatmap-color": [
         "interpolate", ["linear"], ["heatmap-density"],
         0, "rgba(0,0,0,0)",
@@ -126,7 +128,9 @@ export default function MapView({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const readyRef = useRef(false);
+  // State (not a ref) so the data effects below re-run once the style loads.
+  // With a ref, data that arrived before the map finished loading was dropped.
+  const [mapReady, setMapReady] = useState(false);
   const originMarker = useRef<mapboxgl.Marker | null>(null);
   const destMarker = useRef<mapboxgl.Marker | null>(null);
   const onClickRef = useRef(onMapClick);
@@ -156,7 +160,7 @@ export default function MapView({
     map.on("load", () => {
       initSources(map);
       initLayers(map);
-      readyRef.current = true;
+      setMapReady(true);
     });
 
     map.on("click", (e) => {
@@ -167,7 +171,7 @@ export default function MapView({
     return () => {
       map.remove();
       mapRef.current = null;
-      readyRef.current = false;
+      setMapReady(false);
     };
   }, []);
 
@@ -201,21 +205,21 @@ export default function MapView({
 
   // Incident heatmap
   useEffect(() => {
-    if (!readyRef.current || !mapRef.current || !incidents) return;
+    if (!mapReady || !mapRef.current || !incidents) return;
     const src = mapRef.current.getSource("incidents") as mapboxgl.GeoJSONSource | undefined;
     src?.setData(incidents as unknown as GeoJSON.FeatureCollection);
-  }, [incidents]);
+  }, [incidents, mapReady]);
 
   // Road risk layer
   useEffect(() => {
-    if (!readyRef.current || !mapRef.current || !riskSegments) return;
+    if (!mapReady || !mapRef.current || !riskSegments) return;
     const src = mapRef.current.getSource("road-risk") as mapboxgl.GeoJSONSource | undefined;
     src?.setData(riskSegments as unknown as GeoJSON.FeatureCollection);
-  }, [riskSegments]);
+  }, [riskSegments, mapReady]);
 
   // Routes
   useEffect(() => {
-    if (!readyRef.current || !mapRef.current) return;
+    if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
 
     if (!routes) {
@@ -246,13 +250,13 @@ export default function MapView({
       );
       map.fitBounds(bounds, { padding: 80, maxZoom: 17 });
     }
-  }, [routes, selectedMode]);
+  }, [routes, selectedMode, mapReady]);
 
   // Selected mode opacity
   useEffect(() => {
-    if (!readyRef.current || !mapRef.current || !routes) return;
+    if (!mapReady || !mapRef.current || !routes) return;
     updateRouteOpacity(mapRef.current, selectedMode);
-  }, [selectedMode, routes]);
+  }, [selectedMode, routes, mapReady]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

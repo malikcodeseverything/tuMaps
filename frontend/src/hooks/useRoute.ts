@@ -14,8 +14,13 @@ export function useRoute(
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchIncidents().then(setIncidents).catch(() => null);
-    fetchRiskSegments().then(setRiskSegments).catch(() => null);
+    // Map overlays are optional: routing still works without them.
+    fetchIncidents()
+      .then(setIncidents)
+      .catch((e) => console.warn("Incident heatmap unavailable:", e));
+    fetchRiskSegments()
+      .then(setRiskSegments)
+      .catch((e) => console.warn("Road risk layer unavailable:", e));
   }, []);
 
   useEffect(() => {
@@ -32,5 +37,12 @@ export function useRoute(
       .finally(() => setIsLoading(false));
   }, [origin, destination]);
 
-  return { routes, incidents, riskSegments, isLoading, error };
+  return {
+    routes,
+    incidents,
+    riskSegments,
+    dataThrough: incidents?.meta?.data_through ?? null,
+    isLoading,
+    error,
+  };
 }

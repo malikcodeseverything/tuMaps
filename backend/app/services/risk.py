@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.incident import Incident
-from .graph import get_graph
+from .graph import get_graph, bump_risk_version
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +44,33 @@ async def compute_and_apply(session: AsyncSession) -> None:
         logger.warning("Graph not loaded — skipping risk computation")
         return
 
-    result = await session.execute(select(Incident))
-    incidents = result.scalars().all()
+    # Only the four columns we need: loading full ORM objects for ~70k rows
+    # costs far more memory than this tuple list.
+    result = await session.execute(
+        select(Incident.lat, Incident.lng, Incident.ucr_code, Incident.incident_date)
+    )
+    incidents = result.all()
 
     if not incidents:
-        logger.info("No incidents in DB — all edge risks set to 0")
+        logger.info("No incidents in DB, all edge risks set to 0")
         for u, v, k in G.edges(keys=True):
             G[u][v][k]["risk"] = 0.0
         _apply_weights(G)
+        bump_risk_version()
         return
 
     logger.info("Computing risk scores from %d incidents…", len(incidents))
 
     coords = np.array([
-        [(i.lat - _LAT_C) * _SCALE_LAT, (i.lng - _LNG_C) * _SCALE_LNG]
-        for i in incidents
+        [(lat - _LAT_C) * _SCALE_LAT, (lng - _LNG_C) * _SCALE_LNG]
+        for lat, lng, _, _ in incidents
     ])
+    # Severity x recency is a property of the incident alone, so compute it once.
+    weights = np.array([
+        SEVERITY.get(ucr, _DEFAULT_SEVERITY) * _recency(d)
+        for _, _, ucr, d in incidents
+    ])
+    del incidents
     tree = KDTree(coords)
 
     raw: dict = {}
@@ -74,16 +85,14 @@ async def compute_and_apply(session: AsyncSession) -> None:
 
         pt = [(mid_lat - _LAT_C) * _SCALE_LAT, (mid_lng - _LNG_C) * _SCALE_LNG]
         idxs = tree.query_ball_point(pt, r=_SEARCH_RADIUS_M)
-        raw[(u, v, k)] = sum(
-            SEVERITY.get(incidents[i].ucr_code, _DEFAULT_SEVERITY) * _recency(incidents[i].incident_date)
-            for i in idxs
-        )
+        raw[(u, v, k)] = float(weights[idxs].sum()) if idxs else 0.0
 
     max_r = max(raw.values()) if raw else 1.0
     for (u, v, k), r in raw.items():
         G[u][v][k]["risk"] = r / max_r if max_r > 0 else 0.0
 
     _apply_weights(G)
+    bump_risk_version()
     logger.info("Risk computation complete")
 
 
