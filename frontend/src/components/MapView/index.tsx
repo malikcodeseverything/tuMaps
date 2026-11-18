@@ -276,7 +276,13 @@ export default function MapView({
         (b, c) => b.extend(c),
         new mapboxgl.LngLatBounds(coords[0], coords[0]),
       );
-      map.fitBounds(bounds, { padding: 80, maxZoom: 17 });
+      // Keep the route clear of the panel: beside it on desktop, under the
+      // compact summary on phones and small tablets.
+      const narrow = window.matchMedia("(max-width: 1023px)").matches;
+      const padding = narrow
+        ? { top: Math.min(300, Math.round(window.innerHeight * 0.5)), bottom: 40, left: 32, right: 32 }
+        : { top: 80, bottom: 80, left: 380, right: 80 };
+      map.fitBounds(bounds, { padding, maxZoom: 17 });
     }
   }, [routes, selectedMode, mapReady]);
 
