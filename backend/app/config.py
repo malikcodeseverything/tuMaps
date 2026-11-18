@@ -71,9 +71,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "https://tu-maps.vercel.app",
     ]
-    # Matches the production domain plus Vercel preview deployments,
-    # e.g. https://tu-maps-git-feature-x.vercel.app
-    cors_origin_regex: Optional[str] = r"https://tu-maps(-[a-z0-9-]+)?\.vercel\.app"
+    # Vercel preview deployments of this project only. Every preview URL ends in
+    # the team slug, e.g. https://tu-maps-git-feature-x-malikcodeseverythings-projects.vercel.app.
+    # A bare "tu-maps-*.vercel.app" pattern would also match anyone else's
+    # project that happens to be named tu-maps-something.
+    cors_origin_regex: Optional[str] = r"https://tu-maps(-[a-z0-9]+)*-malikcodeseverythings-projects\.vercel\.app"
 
     # Incident data refresh. The API re-ingests Philly Open Data in the
     # background when the newest stored incident is older than

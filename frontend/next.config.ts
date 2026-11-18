@@ -36,8 +36,12 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Location is only ever chosen on the map; the page never asks the browser for it.
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+  // Location and motion sensors power "Use my location" and navigation, for
+  // this site only; embedded third-party frames get nothing.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), payment=(), usb=(), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+  },
 ];
 
 const nextConfig: NextConfig = {

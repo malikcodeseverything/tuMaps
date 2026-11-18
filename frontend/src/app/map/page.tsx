@@ -93,6 +93,7 @@ export default function MapPage() {
       const turned = prev ? Math.abs(((compass - prev.value + 540) % 360) - 180) : 360;
       if (prev && (now - prev.at < 60 || turned < 2)) return;
       lastCompass.current = { at: now, value: compass };
+      setCompassNeedsTap(false);
       setHeading(compass);
     };
     const type = "ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation";
@@ -178,9 +179,10 @@ export default function MapPage() {
   }, []);
 
   // A new start or end point ends any navigation in progress.
+  // Waits for the saved trip to load, or it would cancel a resumed navigation.
   useEffect(() => {
-    if (!origin || !destination) setNavigating(false);
-  }, [origin, destination]);
+    if (restored && (!origin || !destination)) setNavigating(false);
+  }, [restored, origin, destination]);
 
   const useMyLocation = useCallback(() => {
     if (!("geolocation" in navigator)) {
