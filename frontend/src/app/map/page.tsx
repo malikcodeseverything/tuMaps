@@ -10,6 +10,11 @@ import { loadTrip, saveTrip } from "@/lib/tripStore";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
+const LOCATION_BLOCKED =
+  "Location is blocked for this site. On iPhone: Settings > Privacy & Security > Location Services > Safari Websites > While Using. In a desktop browser: allow location for this site in the address bar.";
+const LOCATION_OFF =
+  "Your device isn't sharing a location. Check that Location Services is on for your browser in your phone or computer settings.";
+
 export default function MapPage() {
   const [origin, setOrigin] = useState<[number, number] | null>(null);
   const [destination, setDestination] = useState<[number, number] | null>(null);
@@ -47,36 +52,75 @@ export default function MapPage() {
   const courseAt = useRef(0);
   const lastCompass = useRef<{ at: number; value: number } | null>(null);
 
+  // Why there is no position yet, shown in the panel instead of waiting forever.
+  const [locationIssue, setLocationIssue] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!navigating || !("geolocation" in navigator)) return;
+    if (!navigating) return;
+    if (!("geolocation" in navigator)) {
+      setLocationIssue("This browser can't share your location.");
+      return;
+    }
     anchorFix.current = null;
-    const id = navigator.geolocation.watchPosition(
-      ({ coords }) => {
-        const pt: [number, number] = [coords.longitude, coords.latitude];
-        setUserPos(pt);
-        const course = coords.heading;
-        if (course !== null && Number.isFinite(course) && (coords.speed ?? 0) >= 0.8) {
-          courseAt.current = Date.now();
-          setHeading(course);
-          anchorFix.current = pt;
-          return;
-        }
-        if (!anchorFix.current) {
-          anchorFix.current = pt;
-          return;
-        }
-        // Ignore jitter: only count movement larger than the fix's accuracy.
-        if (metresBetween(anchorFix.current, pt) > Math.max(8, (coords.accuracy ?? 10) * 1.5)) {
-          courseAt.current = Date.now();
-          setHeading(bearingBetween(anchorFix.current, pt));
-          anchorFix.current = pt;
-        }
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000 },
-    );
-    return () => navigator.geolocation.clearWatch(id);
+    setLocationIssue(null);
+    let id = 0;
+    let retry = 0;
+    let gotFix = false;
+    const onFix = ({ coords }: GeolocationPosition) => {
+      gotFix = true;
+      setLocationIssue(null);
+      handleFix(coords);
+    };
+    const onError = (err: GeolocationPositionError) => {
+      if (err.code === err.PERMISSION_DENIED) {
+        setLocationIssue(LOCATION_BLOCKED);
+        return;
+      }
+      // Unavailable or timed out (common indoors): say so and keep trying.
+      if (!gotFix) setLocationIssue(err.code === err.POSITION_UNAVAILABLE ? LOCATION_OFF : "Still looking for a GPS signal…");
+      navigator.geolocation.clearWatch(id);
+      retry = window.setTimeout(start, 3000);
+    };
+    const start = () => {
+      id = navigator.geolocation.watchPosition(onFix, onError, {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 15000,
+      });
+    };
+    // A quick, possibly cached fix so the arrow appears right away.
+    navigator.geolocation.getCurrentPosition(onFix, () => {}, { maximumAge: 30000, timeout: 8000 });
+    start();
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      clearTimeout(retry);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigating]);
+
+  // Uses only refs and state setters, so the copy captured by the effect is fine.
+  function handleFix(coords: GeolocationCoordinates) {
+    const pt: [number, number] = [coords.longitude, coords.latitude];
+    setUserPos(pt);
+    const course = coords.heading;
+    if (course !== null && Number.isFinite(course) && (coords.speed ?? 0) >= 0.8) {
+      courseAt.current = Date.now();
+      setHeading(course);
+      anchorFix.current = pt;
+      return;
+    }
+    if (!anchorFix.current) {
+      anchorFix.current = pt;
+      return;
+    }
+    // Ignore jitter: only count movement larger than the fix's accuracy.
+    if (metresBetween(anchorFix.current, pt) > Math.max(8, (coords.accuracy ?? 10) * 1.5)) {
+      courseAt.current = Date.now();
+      setHeading(bearingBetween(anchorFix.current, pt));
+      anchorFix.current = pt;
+    }
+  }
+
 
   useEffect(() => {
     if (!navigating) return;
@@ -201,8 +245,10 @@ export default function MapPage() {
       (err) => {
         setLocationError(
           err.code === err.PERMISSION_DENIED
-            ? "Location is blocked. Allow it in your browser settings."
-            : "Couldn't find your location. Try again.",
+            ? LOCATION_BLOCKED
+            : err.code === err.POSITION_UNAVAILABLE
+              ? LOCATION_OFF
+              : "Couldn't get a GPS signal in time. Try again, ideally near a window or outside.",
         );
         setLocating(false);
       },
@@ -270,6 +316,7 @@ export default function MapPage() {
         onEndNav={() => setNavigating(false)}
         onReroute={rerouteFromHere}
         compassNeedsTap={compassNeedsTap}
+        locationIssue={locationIssue}
         onEnableCompass={enableCompass}
         onUseMyLocation={useMyLocation}
       />

@@ -47,6 +47,7 @@ interface Props {
   onUseMyLocation: () => void;
   compassNeedsTap: boolean;
   onEnableCompass: () => void;
+  locationIssue: string | null;
 }
 
 const MODE_NAMES: Record<RouteMode, string> = { safest: "Safest", fastest: "Fastest", balanced: "Balanced" };
@@ -98,6 +99,7 @@ export default function RoutePanel({
   onUseMyLocation,
   compassNeedsTap,
   onEnableCompass,
+  locationIssue,
 }: Props) {
   // On phones and small tablets the full panel covers most of the map, so it
   // folds into a compact summary once a route arrives. Tap it to open again.
@@ -172,10 +174,15 @@ export default function RoutePanel({
                     {progress ? fmtTime(progress.remainingM / WALK_SPEED_MPS) : "Finding you…"}
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
-                    {progress ? `${fmtDist(progress.remainingM)} left` : "Allow location access to start"} · {MODE_NAMES[selectedMode]} route to{" "}
+                    {progress ? `${fmtDist(progress.remainingM)} left · ` : ""}{MODE_NAMES[selectedMode]} route to{" "}
                     {destinationName ?? "destination"}
                   </p>
                 </div>
+                {!progress && locationIssue && (
+                  <p className="text-xs leading-relaxed text-amber-200 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+                    {locationIssue}
+                  </p>
+                )}
                 {offRoute && (
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
                     <p className="flex items-center gap-1.5 text-xs text-amber-200">
