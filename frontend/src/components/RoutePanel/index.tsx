@@ -32,8 +32,8 @@ interface Props {
   isMapWaking: boolean;
   error: string | null;
   selectingMode: SelectingMode;
-  onOriginChange: (pt: [number, number] | null) => void;
-  onDestinationChange: (pt: [number, number] | null) => void;
+  onOriginChange: (pt: [number, number] | null, name?: string | null) => void;
+  onDestinationChange: (pt: [number, number] | null, name?: string | null) => void;
   onModeChange: (mode: RouteMode) => void;
   onSelectingModeChange: (mode: SelectingMode) => void;
   navigating: boolean;

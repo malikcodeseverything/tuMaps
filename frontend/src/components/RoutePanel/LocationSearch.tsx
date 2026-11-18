@@ -14,7 +14,7 @@ interface Props {
   /** Name to show for `value` when it came from elsewhere (the map search bar). */
   placeName?: string | null;
   isPickingFromMap: boolean;
-  onSelect: (pt: [number, number]) => void;
+  onSelect: (pt: [number, number], name: string) => void;
   onPickFromMap: () => void;
   onClear: () => void;
 }
@@ -43,7 +43,7 @@ export default function LocationSearch({
       labelledPoint.current = `${place.center[0]},${place.center[1]}`;
       setSelected(place.name);
       setEditing(false);
-      onSelect(place.center);
+      onSelect(place.center, place.name);
     },
     [onSelect],
   );
