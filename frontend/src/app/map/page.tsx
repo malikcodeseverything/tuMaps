@@ -6,6 +6,7 @@ import MapSearch from "@/components/Search/MapSearch";
 import { useRoute } from "@/hooks/useRoute";
 import type { Place, RouteMode, SelectingMode } from "@/types";
 import { bearingBetween, metresBetween, progressAlong } from "@/lib/navigation";
+import { loadTrip, saveTrip } from "@/lib/tripStore";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -37,34 +38,38 @@ export default function MapPage() {
     [navigating, userPos, activeRoute],
   );
 
-  // Direction of travel while navigating. GPS heading or the bearing between
-  // recent fixes when moving; the phone's compass when standing still.
+  // Direction of travel while navigating. Walking at a steady pace, GPS course
+  // (or the bearing between fixes further apart than their accuracy) is the
+  // truth. Slower than that, or standing still, the phone's compass is.
   const [heading, setHeading] = useState<number | null>(null);
-  const lastFix = useRef<[number, number] | null>(null);
-  const moving = useRef(false);
+  const [compassNeedsTap, setCompassNeedsTap] = useState(false);
+  const anchorFix = useRef<[number, number] | null>(null);
+  const courseAt = useRef(0);
+  const lastCompass = useRef<{ at: number; value: number } | null>(null);
 
   useEffect(() => {
     if (!navigating || !("geolocation" in navigator)) return;
-    lastFix.current = null;
+    anchorFix.current = null;
     const id = navigator.geolocation.watchPosition(
       ({ coords }) => {
         const pt: [number, number] = [coords.longitude, coords.latitude];
         setUserPos(pt);
-        const gpsHeading = coords.heading;
-        if (gpsHeading !== null && !Number.isNaN(gpsHeading) && (coords.speed ?? 0) > 0.5) {
-          moving.current = true;
-          setHeading(gpsHeading);
-          lastFix.current = pt;
+        const course = coords.heading;
+        if (course !== null && Number.isFinite(course) && (coords.speed ?? 0) >= 0.8) {
+          courseAt.current = Date.now();
+          setHeading(course);
+          anchorFix.current = pt;
           return;
         }
-        if (!lastFix.current) {
-          lastFix.current = pt;
-        } else if (metresBetween(lastFix.current, pt) > 4) {
-          moving.current = true;
-          setHeading(bearingBetween(lastFix.current, pt));
-          lastFix.current = pt;
-        } else {
-          moving.current = false;
+        if (!anchorFix.current) {
+          anchorFix.current = pt;
+          return;
+        }
+        // Ignore jitter: only count movement larger than the fix's accuracy.
+        if (metresBetween(anchorFix.current, pt) > Math.max(8, (coords.accuracy ?? 10) * 1.5)) {
+          courseAt.current = Date.now();
+          setHeading(bearingBetween(anchorFix.current, pt));
+          anchorFix.current = pt;
         }
       },
       () => {},
@@ -76,27 +81,83 @@ export default function MapPage() {
   useEffect(() => {
     if (!navigating) return;
     const onOrientation = (e: DeviceOrientationEvent) => {
-      if (moving.current) return;
       const ios = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
-      const compass = typeof ios === "number" ? ios : e.absolute && e.alpha !== null ? (360 - e.alpha) % 360 : null;
-      if (compass !== null) setHeading(compass);
+      let compass = typeof ios === "number" && ios >= 0 ? ios : e.absolute && e.alpha !== null ? 360 - e.alpha : null;
+      if (compass === null) return;
+      // Readings are relative to the top of the device; correct for landscape.
+      compass = (compass + (screen.orientation?.angle ?? 0) + 360) % 360;
+      // A fresh GPS course beats the compass while actually walking.
+      if (Date.now() - courseAt.current < 4000) return;
+      const now = Date.now();
+      const prev = lastCompass.current;
+      const turned = prev ? Math.abs(((compass - prev.value + 540) % 360) - 180) : 360;
+      if (prev && (now - prev.at < 60 || turned < 2)) return;
+      lastCompass.current = { at: now, value: compass };
+      setHeading(compass);
     };
     const type = "ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation";
     window.addEventListener(type, onOrientation as EventListener);
     return () => window.removeEventListener(type, onOrientation as EventListener);
   }, [navigating]);
 
-  const startNavigation = useCallback(async () => {
-    // iPhones only share the compass after the user allows it from a tap.
+  // iPhones share the compass only after a tap grants it, so a resumed
+  // navigation (after a refresh) offers a button for that.
+  const enableCompass = useCallback(async () => {
     const D = (typeof DeviceOrientationEvent === "undefined" ? undefined : DeviceOrientationEvent) as
       | { requestPermission?: () => Promise<string> }
       | undefined;
-    if (typeof D?.requestPermission === "function") {
-      try { await D.requestPermission(); } catch { /* compass stays off; GPS heading still works */ }
+    if (typeof D?.requestPermission !== "function") return true;
+    try {
+      const ok = (await D.requestPermission()) === "granted";
+      setCompassNeedsTap(!ok);
+      return ok;
+    } catch {
+      setCompassNeedsTap(true);
+      return false;
     }
+  }, []);
+
+  // Resume a trip after a refresh, and keep the saved copy current.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    const trip = loadTrip();
+    if (trip) {
+      setOrigin(trip.origin);
+      setOriginName(trip.originName);
+      setDestination(trip.destination);
+      setDestinationName(trip.destinationName);
+      setSelectedMode(trip.mode);
+      if (trip.navigating) setNavigating(true);
+    }
+    setRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return;
+    saveTrip(
+      origin && destination
+        ? { origin, destination, originName, destinationName, mode: selectedMode, navigating }
+        : null,
+    );
+  }, [restored, origin, destination, originName, destinationName, selectedMode, navigating]);
+
+  // After a refresh an iPhone needs a tap before the compass works again.
+  useEffect(() => {
+    if (!navigating) return;
+    const t = setTimeout(() => {
+      const D = (typeof DeviceOrientationEvent === "undefined" ? undefined : DeviceOrientationEvent) as
+        | { requestPermission?: () => Promise<string> }
+        | undefined;
+      if (!lastCompass.current && typeof D?.requestPermission === "function") setCompassNeedsTap(true);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [navigating]);
+
+  const startNavigation = useCallback(async () => {
+    await enableCompass();
     setHeading(null);
     setNavigating(true);
-  }, []);
+  }, [enableCompass]);
 
   // Keep the screen awake while navigating, where the browser allows it.
   useEffect(() => {
@@ -206,6 +267,8 @@ export default function MapPage() {
         onStartNav={startNavigation}
         onEndNav={() => setNavigating(false)}
         onReroute={rerouteFromHere}
+        compassNeedsTap={compassNeedsTap}
+        onEnableCompass={enableCompass}
         onUseMyLocation={useMyLocation}
       />
       {/* Phones and tablets: full width above the route panel (leaving room for

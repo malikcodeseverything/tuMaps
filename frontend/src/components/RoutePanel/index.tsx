@@ -45,6 +45,8 @@ interface Props {
   onEndNav: () => void;
   onReroute: () => void;
   onUseMyLocation: () => void;
+  compassNeedsTap: boolean;
+  onEnableCompass: () => void;
 }
 
 const MODE_NAMES: Record<RouteMode, string> = { safest: "Safest", fastest: "Fastest", balanced: "Balanced" };
@@ -94,6 +96,8 @@ export default function RoutePanel({
   onEndNav,
   onReroute,
   onUseMyLocation,
+  compassNeedsTap,
+  onEnableCompass,
 }: Props) {
   // On phones and small tablets the full panel covers most of the map, so it
   // folds into a compact summary once a route arrives. Tap it to open again.
@@ -190,6 +194,15 @@ export default function RoutePanel({
               </>
             );
           })()}
+          {compassNeedsTap && (
+            <button
+              type="button"
+              onClick={onEnableCompass}
+              className="w-full rounded-lg py-2 text-xs font-semibold text-blue-200 bg-blue-500/15 border border-blue-400/30 hover:bg-blue-500/25"
+            >
+              Tap to turn the map with your compass
+            </button>
+          )}
           <button
             type="button"
             onClick={onEndNav}

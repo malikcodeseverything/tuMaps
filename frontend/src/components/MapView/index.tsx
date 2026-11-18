@@ -38,6 +38,32 @@ interface Props {
   onUserLocation: (lngLat: [number, number]) => void;
 }
 
+const NAV_PITCH = 50;
+const PITCH_KEY = "tumaps.navPitch";
+
+function readNavPitch(): number {
+  try {
+    const v = Number(localStorage.getItem(PITCH_KEY));
+    return Number.isFinite(v) && v >= 0 && v <= 60 && localStorage.getItem(PITCH_KEY) !== null ? v : NAV_PITCH;
+  } catch {
+    return NAV_PITCH;
+  }
+}
+
+function saveNavPitch(p: number) {
+  try { localStorage.setItem(PITCH_KEY, String(p)); } catch { /* private mode */ }
+}
+
+/** Shortest signed turn from a to b, in degrees (-180..180). */
+function angleDelta(a: number, b: number): number {
+  return ((b - a + 540) % 360) - 180;
+}
+
+/** Frame-rate independent easing factor for a time constant in seconds. */
+function smooth(dt: number, tau: number): number {
+  return 1 - Math.exp(-dt / tau);
+}
+
 /** Arrow drawn at the walker's position while navigating. */
 function makeArrow(): HTMLDivElement {
   const el = document.createElement("div");
@@ -221,8 +247,11 @@ export default function MapView({
       setMapReady(true);
     });
 
-    map.on("dragstart", () => {
-      if (navigatingRef.current) setFollowing(false);
+    map.on("dragstart", (e) => {
+      // One finger or the mouse pans away; two fingers are tilting or zooming.
+      const oe = e.originalEvent as TouchEvent | MouseEvent | undefined;
+      const multiTouch = !!oe && "touches" in oe && oe.touches.length > 1;
+      if (navigatingRef.current && !multiTouch) setFollowing(false);
     });
 
     map.on("click", (e) => {
@@ -346,43 +375,120 @@ export default function MapView({
     updateRouteOpacity(mapRef.current, selectedMode);
   }, [selectedMode, routes, mapReady]);
 
-  // Navigation: an arrow for the walker, and a camera that follows it with
-  // the direction of travel pointing up and the street ahead in view.
+  // Navigation camera. One animation loop eases the map toward the walker's
+  // position and heading every frame. Separate easeTo calls per GPS or compass
+  // reading cancelled each other before they could turn the map.
+  const userPosRef = useRef(userPos);
+  const headingRef = useRef(heading);
+  const followingRef = useRef(following);
+  const interactingRef = useRef(false);
+  const [tilted, setTilted] = useState(true);
+  const pitchTarget = useRef(NAV_PITCH);
+  const zoomTarget = useRef(17.5);
+
+  useEffect(() => { userPosRef.current = userPos; }, [userPos]);
+  useEffect(() => { headingRef.current = heading; }, [heading]);
+  useEffect(() => { followingRef.current = following; }, [following]);
+
+  // Two-finger tilt and pinch zoom are the walker's choice: pause the loop
+  // while fingers are down, then keep whatever pitch and zoom they left.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    if (navigating) {
-      setFollowing(true);
-      // The location control's own follow mode would fight this camera.
-      if (trackingRef.current) geolocateRef.current?.trigger();
-    } else {
-      arrowMarker.current?.remove();
-      arrowMarker.current = null;
-      map.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 600 });
-    }
-  }, [navigating, mapReady]);
+    const down = () => { interactingRef.current = true; };
+    const up = (e: mapboxgl.MapTouchEvent) => {
+      if (e.originalEvent.touches.length > 0) return;
+      interactingRef.current = false;
+      keepUserCamera();
+    };
+    // Only gestures carry an originalEvent; the follow loop's own moves don't.
+    const keepUserCamera = () => {
+      pitchTarget.current = map.getPitch();
+      zoomTarget.current = map.getZoom();
+      setTilted(map.getPitch() > 10);
+      if (navigatingRef.current) saveNavPitch(map.getPitch());
+    };
+    // Mapbox's types leave originalEvent off these events, but it is set for gestures.
+    const byUser = (e: unknown) => !!(e as { originalEvent?: Event }).originalEvent;
+    const wheel = (e: unknown) => { if (byUser(e)) zoomTarget.current = map.getZoom(); };
+    const pitched = (e: unknown) => { if (byUser(e)) keepUserCamera(); };
+    const rotate = (e: unknown) => { if (byUser(e) && navigatingRef.current) setFollowing(false); };
+    map.on("touchstart", down);
+    map.on("touchend", up);
+    map.on("touchcancel", up);
+    map.on("zoomend", wheel);
+    map.on("pitchend", pitched);
+    map.on("rotatestart", rotate);
+    return () => {
+      map.off("touchstart", down);
+      map.off("touchend", up);
+      map.off("touchcancel", up);
+      map.off("zoomend", wheel);
+      map.off("pitchend", pitched);
+      map.off("rotatestart", rotate);
+    };
+  }, [mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !navigating || !userPos) return;
-    if (!arrowMarker.current) {
-      arrowMarker.current = new mapboxgl.Marker({ element: makeArrow(), rotationAlignment: "map", pitchAlignment: "map" })
-        .setLngLat(userPos)
-        .addTo(map);
+    if (!map || !mapReady) return;
+    if (!navigating) {
+      arrowMarker.current?.remove();
+      arrowMarker.current = null;
+      map.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 600 });
+      return;
     }
-    arrowMarker.current.setLngLat(userPos).setRotation(heading ?? 0);
-    if (following) {
-      map.easeTo({
-        center: userPos,
-        bearing: heading ?? map.getBearing(),
-        pitch: 50,
-        zoom: Math.max(map.getZoom(), 17.5),
-        // Sit the arrow low on screen so more of the route ahead shows.
-        padding: { top: Math.round(map.getContainer().clientHeight * 0.4), bottom: 0, left: 0, right: 0 },
-        duration: 700,
+    setFollowing(true);
+    // The location control's own follow mode would fight this camera.
+    if (trackingRef.current) geolocateRef.current?.trigger();
+    const saved = readNavPitch();
+    pitchTarget.current = saved;
+    setTilted(saved > 10);
+    zoomTarget.current = Math.max(map.getZoom(), 17.5);
+    // Sit the arrow low on screen so more of the route ahead shows.
+    map.setPadding({ top: Math.round(map.getContainer().clientHeight * 0.4), bottom: 0, left: 0, right: 0 });
+
+    let frame = 0;
+    let last = performance.now();
+    let shownHeading: number | null = null;
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const pos = userPosRef.current;
+      if (!pos) return;
+      const target = headingRef.current;
+      if (target !== null) {
+        shownHeading = shownHeading === null ? target : shownHeading + angleDelta(shownHeading, target) * smooth(dt, 0.18);
+      }
+      if (!arrowMarker.current) {
+        arrowMarker.current = new mapboxgl.Marker({ element: makeArrow(), rotationAlignment: "map", pitchAlignment: "map" })
+          .setLngLat(pos)
+          .addTo(map);
+      }
+      arrowMarker.current.setLngLat(pos).setRotation(shownHeading ?? 0);
+      if (!followingRef.current || interactingRef.current) return;
+      const c = map.getCenter();
+      const k = smooth(dt, 0.3);
+      const bearing = shownHeading ?? map.getBearing();
+      map.jumpTo({
+        center: [c.lng + (pos[0] - c.lng) * k, c.lat + (pos[1] - c.lat) * k],
+        bearing: map.getBearing() + angleDelta(map.getBearing(), bearing) * smooth(dt, 0.12),
+        pitch: map.getPitch() + (pitchTarget.current - map.getPitch()) * smooth(dt, 0.2),
+        zoom: map.getZoom() + (zoomTarget.current - map.getZoom()) * smooth(dt, 0.3),
       });
-    }
-  }, [navigating, userPos, heading, following, mapReady]);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [navigating, mapReady]);
+
+  const toggleTilt = () => {
+    const next = !tilted;
+    setTilted(next);
+    pitchTarget.current = next ? NAV_PITCH : 0;
+    saveNavPitch(pitchTarget.current);
+    if (!following) mapRef.current?.easeTo({ pitch: pitchTarget.current, duration: 500 });
+  };
 
   return (
     <>
@@ -394,6 +500,16 @@ export default function MapView({
           className="absolute z-20 bottom-8 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold text-white bg-blue-600 shadow-lg hover:bg-blue-500"
         >
           Recenter
+        </button>
+      )}
+      {navigating && (
+        <button
+          type="button"
+          onClick={toggleTilt}
+          aria-label={tilted ? "Switch to top-down view" : "Switch to angled view"}
+          className="absolute z-20 bottom-10 right-3 w-12 h-12 rounded-full text-sm font-bold text-gray-900 bg-white shadow-lg hover:bg-gray-100"
+        >
+          {tilted ? "2D" : "3D"}
         </button>
       )}
     </>
