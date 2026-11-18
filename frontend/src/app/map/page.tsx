@@ -1,10 +1,11 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import RoutePanel from "@/components/RoutePanel";
 import MapSearch from "@/components/Search/MapSearch";
 import { useRoute } from "@/hooks/useRoute";
 import type { Place, RouteMode, SelectingMode } from "@/types";
+import { progressAlong } from "@/lib/navigation";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -21,6 +22,29 @@ export default function MapPage() {
 
   const { routes, incidents, riskSegments, dataThrough, isLoading, isWaking, isMapWaking, error } = useRoute(origin, destination);
 
+  // Live position from the map's location control, and walking navigation.
+  const [userPos, setUserPos] = useState<[number, number] | null>(null);
+  const [navigating, setNavigating] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  const activeRoute = routes?.[selectedMode] ?? null;
+  const progress = useMemo(
+    () =>
+      navigating && userPos && activeRoute
+        ? progressAlong(activeRoute.geometry.coordinates as [number, number][], userPos)
+        : null,
+    [navigating, userPos, activeRoute],
+  );
+
+  // Keep the screen awake while navigating, where the browser allows it.
+  useEffect(() => {
+    if (!navigating || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    navigator.wakeLock.request("screen").then((l) => { lock = l; }).catch(() => {});
+    return () => { lock?.release().catch(() => {}); };
+  }, [navigating]);
+
   const changeOrigin = useCallback((pt: [number, number] | null, name: string | null = null) => {
     setOrigin(pt);
     setOriginName(name);
@@ -30,6 +54,41 @@ export default function MapPage() {
     setDestination(pt);
     setDestinationName(name);
   }, []);
+
+  // A new start or end point ends any navigation in progress.
+  useEffect(() => {
+    if (!origin || !destination) setNavigating(false);
+  }, [origin, destination]);
+
+  const useMyLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationError("This browser can't share your location.");
+      return;
+    }
+    setLocating(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const pt: [number, number] = [coords.longitude, coords.latitude];
+        setUserPos(pt);
+        changeOrigin(pt, "My location");
+        setLocating(false);
+      },
+      (err) => {
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location is blocked. Allow it in your browser settings."
+            : "Couldn't find your location. Try again.",
+        );
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }, [changeOrigin]);
+
+  const rerouteFromHere = useCallback(() => {
+    if (userPos) changeOrigin(userPos, "My location");
+  }, [userPos, changeOrigin]);
 
   const handleMapClick = useCallback(
     (lngLat: [number, number]) => {
@@ -55,7 +114,9 @@ export default function MapPage() {
         destination={destination}
         selectingMode={selectingMode}
         searchedPlace={searchedPlace}
+        navigating={navigating}
         onMapClick={handleMapClick}
+        onUserLocation={setUserPos}
       />
       <RoutePanel
         dataThrough={dataThrough}
@@ -74,6 +135,15 @@ export default function MapPage() {
         onDestinationChange={changeDestination}
         onModeChange={setSelectedMode}
         onSelectingModeChange={setSelectingMode}
+        navigating={navigating}
+        progress={progress}
+        hasUserPos={!!userPos}
+        locating={locating}
+        locationError={locationError}
+        onStartNav={() => setNavigating(true)}
+        onEndNav={() => setNavigating(false)}
+        onReroute={rerouteFromHere}
+        onUseMyLocation={useMyLocation}
       />
       {/* Phones and tablets: full width above the route panel (leaving room for
           the zoom buttons). Desktop: beside the route panel. */}

@@ -31,7 +31,9 @@ interface Props {
   destination: [number, number] | null;
   selectingMode: SelectingMode;
   searchedPlace: Place | null;
+  navigating: boolean;
   onMapClick: (lngLat: [number, number]) => void;
+  onUserLocation: (lngLat: [number, number]) => void;
 }
 
 /** Pan to a point only if it's off screen, so picking a place never loses it. */
@@ -134,7 +136,9 @@ export default function MapView({
   destination,
   selectingMode,
   searchedPlace,
+  navigating,
   onMapClick,
+  onUserLocation,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -145,8 +149,14 @@ export default function MapView({
   const destMarker = useRef<mapboxgl.Marker | null>(null);
   const searchMarker = useRef<mapboxgl.Marker | null>(null);
   const onClickRef = useRef(onMapClick);
+  const onUserLocationRef = useRef(onUserLocation);
+  const geolocateRef = useRef<mapboxgl.GeolocateControl | null>(null);
+  const trackingRef = useRef(false);
+  const navigatingRef = useRef(navigating);
 
   useEffect(() => { onClickRef.current = onMapClick; }, [onMapClick]);
+  useEffect(() => { onUserLocationRef.current = onUserLocation; }, [onUserLocation]);
+  useEffect(() => { navigatingRef.current = navigating; }, [navigating]);
 
   // Initialise map once
   useEffect(() => {
@@ -168,6 +178,22 @@ export default function MapView({
 
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
+    // Blue dot for the walker's position. Following it is what navigation uses.
+    const geolocate = new mapboxgl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserHeading: true,
+      fitBoundsOptions: { maxZoom: 17.5 },
+    });
+    map.addControl(geolocate, "top-right");
+    geolocate.on("geolocate", (e: unknown) => {
+      const { coords } = e as GeolocationPosition;
+      onUserLocationRef.current([coords.longitude, coords.latitude]);
+    });
+    geolocate.on("trackuserlocationstart", () => { trackingRef.current = true; });
+    geolocate.on("trackuserlocationend", () => { trackingRef.current = false; });
+    geolocateRef.current = geolocate;
+
     map.on("load", () => {
       initSources(map);
       initLayers(map);
@@ -182,6 +208,8 @@ export default function MapView({
     return () => {
       map.remove();
       mapRef.current = null;
+      geolocateRef.current = null;
+      trackingRef.current = false;
       setMapReady(false);
     };
   }, []);
@@ -270,7 +298,8 @@ export default function MapView({
 
     // Fit map to the selected route
     const selected = routes[selectedMode];
-    if (selected && selected.geometry.coordinates.length > 0) {
+    // While navigating the camera follows the walker, even after a reroute.
+    if (selected && selected.geometry.coordinates.length > 0 && !navigatingRef.current) {
       const coords = selected.geometry.coordinates as [number, number][];
       const bounds = coords.reduce(
         (b, c) => b.extend(c),
@@ -291,6 +320,19 @@ export default function MapView({
     if (!mapReady || !mapRef.current || !routes) return;
     updateRouteOpacity(mapRef.current, selectedMode);
   }, [selectedMode, routes, mapReady]);
+
+  // Navigation: follow the walker, tilted so the street ahead is visible.
+  useEffect(() => {
+    const map = mapRef.current;
+    const geolocate = geolocateRef.current;
+    if (!map || !geolocate || !mapReady) return;
+    if (navigating) {
+      if (!trackingRef.current) geolocate.trigger();
+      map.easeTo({ pitch: 45, duration: 800 });
+    } else {
+      map.easeTo({ pitch: 0, duration: 600 });
+    }
+  }, [navigating, mapReady]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

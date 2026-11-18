@@ -1,7 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, LocateFixed, Navigation2, Loader2, TriangleAlert, Flag } from "lucide-react";
+import type { RouteProgress } from "@/lib/navigation";
+import { ARRIVED_WITHIN_M, OFF_ROUTE_AFTER_M, WALK_SPEED_MPS } from "@/lib/navigation";
 import type { RouteMode, RoutesResponse, SelectingMode } from "@/types";
 import LocationSearch from "./LocationSearch";
 import RouteTypeToggle from "./RouteTypeToggle";
@@ -34,7 +36,18 @@ interface Props {
   onDestinationChange: (pt: [number, number] | null) => void;
   onModeChange: (mode: RouteMode) => void;
   onSelectingModeChange: (mode: SelectingMode) => void;
+  navigating: boolean;
+  progress: RouteProgress | null;
+  hasUserPos: boolean;
+  locating: boolean;
+  locationError: string | null;
+  onStartNav: () => void;
+  onEndNav: () => void;
+  onReroute: () => void;
+  onUseMyLocation: () => void;
 }
+
+const MODE_NAMES: Record<RouteMode, string> = { safest: "Safest", fastest: "Fastest", balanced: "Balanced" };
 
 function riskLabel(score: number): string {
   if (score < 0.25) return "Low";
@@ -72,6 +85,15 @@ export default function RoutePanel({
   onDestinationChange,
   onModeChange,
   onSelectingModeChange,
+  navigating,
+  progress,
+  hasUserPos,
+  locating,
+  locationError,
+  onStartNav,
+  onEndNav,
+  onReroute,
+  onUseMyLocation,
 }: Props) {
   // On phones and small tablets the full panel covers most of the map, so it
   // folds into a compact summary once a route arrives. Tap it to open again.
@@ -91,7 +113,7 @@ export default function RoutePanel({
 
   return (
     // Below lg the map search bar sits above this panel; from lg it sits beside it.
-    <div className="absolute top-[4.5rem] lg:top-4 left-4 right-4 lg:right-auto z-10 lg:w-80 max-h-[calc(100dvh-5.5rem)] lg:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700/50">
+    <div className="absolute top-[4.5rem] lg:top-4 left-4 right-14 lg:right-auto z-10 lg:w-80 max-h-[calc(100dvh-5.5rem)] lg:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700/50">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-700/50 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -105,7 +127,7 @@ export default function RoutePanel({
           {dataThrough && <> through {formatDataDate(dataThrough)}</>}
         </p>
         </div>
-        {result && (
+        {result && !navigating && (
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
@@ -118,6 +140,67 @@ export default function RoutePanel({
         )}
       </div>
 
+      {navigating && result && (
+        <div className="px-4 py-3 space-y-3" role="status" aria-live="polite">
+          {(() => {
+            const arrived = !!progress && progress.remainingM <= ARRIVED_WITHIN_M;
+            const offRoute = !!progress && !arrived && progress.offRouteM > OFF_ROUTE_AFTER_M;
+            if (arrived) {
+              return (
+                <div className="flex items-center gap-2 text-green-400">
+                  <Flag size={18} />
+                  <p className="text-base font-semibold">You&apos;ve arrived</p>
+                </div>
+              );
+            }
+            if (isLoading) {
+              return (
+                <div className="flex items-center gap-2 text-gray-300">
+                  <Loader2 size={16} className="animate-spin" />
+                  <p className="text-sm">Rerouting…</p>
+                </div>
+              );
+            }
+            return (
+              <>
+                <div>
+                  <p className="text-2xl font-semibold text-white leading-none">
+                    {progress ? fmtTime(progress.remainingM / WALK_SPEED_MPS) : "Finding you…"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {progress ? `${fmtDist(progress.remainingM)} left` : "Allow location access to start"} · {MODE_NAMES[selectedMode]} route to{" "}
+                    {destinationName ?? "destination"}
+                  </p>
+                </div>
+                {offRoute && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-xs text-amber-200">
+                      <TriangleAlert size={14} /> You&apos;re off the route
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onReroute}
+                      disabled={!hasUserPos}
+                      className="text-xs font-semibold text-amber-100 rounded-md px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30"
+                    >
+                      Reroute from here
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+          <button
+            type="button"
+            onClick={onEndNav}
+            className="w-full rounded-lg py-2 text-sm font-semibold text-white bg-gray-700 hover:bg-gray-600 transition-colors"
+          >
+            End
+          </button>
+        </div>
+      )}
+
+      {!navigating && <>
       {/* Compact summary, phones and small tablets only */}
       {collapsed && result && (
         <button
@@ -168,6 +251,18 @@ export default function RoutePanel({
           }
           onClear={() => onDestinationChange(null)}
         />
+        {!origin && (
+          <button
+            type="button"
+            onClick={onUseMyLocation}
+            disabled={locating}
+            className="flex items-center gap-1.5 text-xs font-medium text-blue-300 hover:text-blue-200 disabled:opacity-60 pt-0.5"
+          >
+            {locating ? <Loader2 size={13} className="animate-spin" /> : <LocateFixed size={13} />}
+            {locating ? "Finding you…" : "Use my location as start"}
+          </button>
+        )}
+        {locationError && <p className="text-xs text-amber-300">{locationError}</p>}
       </div>
 
       {/* Route type selector */}
@@ -178,6 +273,15 @@ export default function RoutePanel({
             routes={routes}
             onModeChange={onModeChange}
           />
+          {result && (
+            <button
+              type="button"
+              onClick={onStartNav}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+            >
+              <Navigation2 size={15} /> Start
+            </button>
+          )}
         </div>
       )}
 
@@ -192,6 +296,7 @@ export default function RoutePanel({
         hasPoints={hasPoints}
       />
       </div>
+      </>}
     </div>
   );
 }
