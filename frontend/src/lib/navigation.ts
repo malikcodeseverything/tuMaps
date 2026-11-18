@@ -47,3 +47,20 @@ export function progressAlong(line: LngLat[], position: LngLat): RouteProgress |
   for (let i = best.seg + 1; i < segLen.length; i++) remaining += segLen[i];
   return { remainingM: remaining, offRouteM: best.dist };
 }
+
+/** Compass bearing from a to b, in degrees clockwise from north. */
+export function bearingBetween(a: LngLat, b: LngLat): number {
+  const rad = Math.PI / 180;
+  const [lng1, lat1] = [a[0] * rad, a[1] * rad];
+  const [lng2, lat2] = [b[0] * rad, b[1] * rad];
+  const y = Math.sin(lng2 - lng1) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1);
+  return (Math.atan2(y, x) / rad + 360) % 360;
+}
+
+/** Straight-line distance in metres, good enough for a few metres to a few km. */
+export function metresBetween(a: LngLat, b: LngLat): number {
+  const [ax, ay] = toMetres(a, a[1]);
+  const [bx, by] = toMetres(b, a[1]);
+  return Math.hypot(bx - ax, by - ay);
+}

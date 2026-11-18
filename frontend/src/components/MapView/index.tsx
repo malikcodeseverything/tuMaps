@@ -32,8 +32,24 @@ interface Props {
   selectingMode: SelectingMode;
   searchedPlace: Place | null;
   navigating: boolean;
+  userPos: [number, number] | null;
+  heading: number | null;
   onMapClick: (lngLat: [number, number]) => void;
   onUserLocation: (lngLat: [number, number]) => void;
+}
+
+/** Arrow drawn at the walker's position while navigating. */
+function makeArrow(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.setAttribute("aria-label", "Your position and direction");
+  el.style.width = "38px";
+  el.style.height = "38px";
+  el.innerHTML =
+    '<svg viewBox="0 0 38 38" width="38" height="38" aria-hidden="true">' +
+    '<circle cx="19" cy="19" r="17" fill="#2563eb" fill-opacity="0.18"/>' +
+    '<path d="M19 6 L29 30 L19 24.5 L9 30 Z" fill="#2563eb" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' +
+    "</svg>";
+  return el;
 }
 
 /** Pan to a point only if it's off screen, so picking a place never loses it. */
@@ -137,6 +153,8 @@ export default function MapView({
   selectingMode,
   searchedPlace,
   navigating,
+  userPos,
+  heading,
   onMapClick,
   onUserLocation,
 }: Props) {
@@ -153,6 +171,9 @@ export default function MapView({
   const geolocateRef = useRef<mapboxgl.GeolocateControl | null>(null);
   const trackingRef = useRef(false);
   const navigatingRef = useRef(navigating);
+  const arrowMarker = useRef<mapboxgl.Marker | null>(null);
+  // Whether the camera follows the walker; dragging the map pauses it.
+  const [following, setFollowing] = useState(true);
 
   useEffect(() => { onClickRef.current = onMapClick; }, [onMapClick]);
   useEffect(() => { onUserLocationRef.current = onUserLocation; }, [onUserLocation]);
@@ -198,6 +219,10 @@ export default function MapView({
       initSources(map);
       initLayers(map);
       setMapReady(true);
+    });
+
+    map.on("dragstart", () => {
+      if (navigatingRef.current) setFollowing(false);
     });
 
     map.on("click", (e) => {
@@ -321,18 +346,57 @@ export default function MapView({
     updateRouteOpacity(mapRef.current, selectedMode);
   }, [selectedMode, routes, mapReady]);
 
-  // Navigation: follow the walker, tilted so the street ahead is visible.
+  // Navigation: an arrow for the walker, and a camera that follows it with
+  // the direction of travel pointing up and the street ahead in view.
   useEffect(() => {
     const map = mapRef.current;
-    const geolocate = geolocateRef.current;
-    if (!map || !geolocate || !mapReady) return;
+    if (!map || !mapReady) return;
     if (navigating) {
-      if (!trackingRef.current) geolocate.trigger();
-      map.easeTo({ pitch: 45, duration: 800 });
+      setFollowing(true);
+      // The location control's own follow mode would fight this camera.
+      if (trackingRef.current) geolocateRef.current?.trigger();
     } else {
-      map.easeTo({ pitch: 0, duration: 600 });
+      arrowMarker.current?.remove();
+      arrowMarker.current = null;
+      map.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 600 });
     }
   }, [navigating, mapReady]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !navigating || !userPos) return;
+    if (!arrowMarker.current) {
+      arrowMarker.current = new mapboxgl.Marker({ element: makeArrow(), rotationAlignment: "map", pitchAlignment: "map" })
+        .setLngLat(userPos)
+        .addTo(map);
+    }
+    arrowMarker.current.setLngLat(userPos).setRotation(heading ?? 0);
+    if (following) {
+      map.easeTo({
+        center: userPos,
+        bearing: heading ?? map.getBearing(),
+        pitch: 50,
+        zoom: Math.max(map.getZoom(), 17.5),
+        // Sit the arrow low on screen so more of the route ahead shows.
+        padding: { top: Math.round(map.getContainer().clientHeight * 0.4), bottom: 0, left: 0, right: 0 },
+        duration: 700,
+      });
+    }
+  }, [navigating, userPos, heading, following, mapReady]);
+
+  return (
+    <>
+      <div ref={containerRef} className="absolute inset-0" />
+      {navigating && !following && (
+        <button
+          type="button"
+          onClick={() => setFollowing(true)}
+          className="absolute z-20 bottom-8 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold text-white bg-blue-600 shadow-lg hover:bg-blue-500"
+        >
+          Recenter
+        </button>
+      )}
+    </>
+  );
+
 }

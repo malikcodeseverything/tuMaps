@@ -1,11 +1,11 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import RoutePanel from "@/components/RoutePanel";
 import MapSearch from "@/components/Search/MapSearch";
 import { useRoute } from "@/hooks/useRoute";
 import type { Place, RouteMode, SelectingMode } from "@/types";
-import { progressAlong } from "@/lib/navigation";
+import { bearingBetween, metresBetween, progressAlong } from "@/lib/navigation";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -36,6 +36,67 @@ export default function MapPage() {
         : null,
     [navigating, userPos, activeRoute],
   );
+
+  // Direction of travel while navigating. GPS heading or the bearing between
+  // recent fixes when moving; the phone's compass when standing still.
+  const [heading, setHeading] = useState<number | null>(null);
+  const lastFix = useRef<[number, number] | null>(null);
+  const moving = useRef(false);
+
+  useEffect(() => {
+    if (!navigating || !("geolocation" in navigator)) return;
+    lastFix.current = null;
+    const id = navigator.geolocation.watchPosition(
+      ({ coords }) => {
+        const pt: [number, number] = [coords.longitude, coords.latitude];
+        setUserPos(pt);
+        const gpsHeading = coords.heading;
+        if (gpsHeading !== null && !Number.isNaN(gpsHeading) && (coords.speed ?? 0) > 0.5) {
+          moving.current = true;
+          setHeading(gpsHeading);
+          lastFix.current = pt;
+          return;
+        }
+        if (!lastFix.current) {
+          lastFix.current = pt;
+        } else if (metresBetween(lastFix.current, pt) > 4) {
+          moving.current = true;
+          setHeading(bearingBetween(lastFix.current, pt));
+          lastFix.current = pt;
+        } else {
+          moving.current = false;
+        }
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 1000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [navigating]);
+
+  useEffect(() => {
+    if (!navigating) return;
+    const onOrientation = (e: DeviceOrientationEvent) => {
+      if (moving.current) return;
+      const ios = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
+      const compass = typeof ios === "number" ? ios : e.absolute && e.alpha !== null ? (360 - e.alpha) % 360 : null;
+      if (compass !== null) setHeading(compass);
+    };
+    const type = "ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation";
+    window.addEventListener(type, onOrientation as EventListener);
+    return () => window.removeEventListener(type, onOrientation as EventListener);
+  }, [navigating]);
+
+  const startNavigation = useCallback(async () => {
+    // iPhones only share the compass after the user allows it from a tap.
+    const D = (typeof DeviceOrientationEvent === "undefined" ? undefined : DeviceOrientationEvent) as
+      | { requestPermission?: () => Promise<string> }
+      | undefined;
+    if (typeof D?.requestPermission === "function") {
+      try { await D.requestPermission(); } catch { /* compass stays off; GPS heading still works */ }
+    }
+    setHeading(null);
+    setNavigating(true);
+  }, []);
 
   // Keep the screen awake while navigating, where the browser allows it.
   useEffect(() => {
@@ -115,6 +176,8 @@ export default function MapPage() {
         selectingMode={selectingMode}
         searchedPlace={searchedPlace}
         navigating={navigating}
+        userPos={userPos}
+        heading={heading}
         onMapClick={handleMapClick}
         onUserLocation={setUserPos}
       />
@@ -140,7 +203,7 @@ export default function MapPage() {
         hasUserPos={!!userPos}
         locating={locating}
         locationError={locationError}
-        onStartNav={() => setNavigating(true)}
+        onStartNav={startNavigation}
         onEndNav={() => setNavigating(false)}
         onReroute={rerouteFromHere}
         onUseMyLocation={useMyLocation}
