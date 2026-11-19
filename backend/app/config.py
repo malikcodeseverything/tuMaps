@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     cors_origins: List[str] = [
         "http://localhost:3000",
         "https://tu-maps.vercel.app",
+        "https://tumaps.hamzayasir.com",
     ]
     # Vercel preview deployments of this project only. Every preview URL ends in
     # the team slug, e.g. https://tu-maps-git-feature-x-malikcodeseverythings-projects.vercel.app.
