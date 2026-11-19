@@ -1,0 +1,16 @@
+# TuMaps
+
+> Free web app that compares walking routes around Temple University's Main Campus in Philadelphia by travel time and nearby reported incidents, then gives walking navigation that follows your direction of travel. Built by Hamza Malik.
+
+- Home: https://tumaps.hamzayasir.com/
+- Route map: https://tumaps.hamzayasir.com/map
+- Author: [Hamza Malik](https://hamzayasir.com/)
+
+## How it works
+
+- Routes are scored from Philadelphia incident records mapped to campus street segments.
+- The map compares route options by estimated walking time and how each weighs nearby incidents.
+- Navigation uses the phone's location and compass and keeps a trip going across page refreshes.
+- Stack: Next.js and Mapbox GL on the frontend, FastAPI and PostgreSQL on the backend.
+
+Scores are estimates from past reports, not a guarantee of safety.
