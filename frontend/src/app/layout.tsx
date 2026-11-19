@@ -3,7 +3,7 @@ import "./globals.css";
 
 const SITE = "https://tumaps.hamzayasir.com";
 const DESCRIPTION =
-  "TuMaps compares walking routes around Temple University's Main Campus in Philadelphia by travel time and nearby reported incidents, with turn-by-turn walking navigation.";
+  "Compare walking routes around Temple University's Main Campus by travel time and nearby reported incidents, with turn-by-turn walking navigation.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
